@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "pyarchive"
+version = "0.1.0"
+description = "Service/client application to interface with a tape library"
+authors = ["Jonathan Neuhauser <jonathan.neuhauser@kit.edu>"]
+license = "GPL2+"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+humanize = "^4.10.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.2"
+pre-commit = "^3.7.1"
+pyfakefs = "^5.6.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
