@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 
 import humanize
 
-from .config import ConfigReader
+from pyarchive.service.config import ConfigReader
 
 
 class JsonDatabase:
@@ -117,10 +117,10 @@ class JsonDatabase:
                 sums[tape] += folder.get("size")
         ordered = sorted(sums.items(), key=lambda e: e[1], reverse=True)
         ordered = [
-            i for i in ordered if i[1] + entry["size"] < ConfigReader().get_maxsize()
+            i for i in ordered if (i[1] + entry["size"]) < ConfigReader().get_maxsize()
         ]
         if len(ordered) == 0:
-            raise ValueError("Directory doesn#t fit on any tape")
+            return "doesn't fit"
         return ordered[0][0]
 
     @staticmethod
@@ -156,7 +156,7 @@ class JsonDatabase:
                     reverse=True,
                 )
                 for folder in prepared_folders:
-                    size_str = self.sizeof_fmt(folder["size"])
+                    size_str = self.sizeof_fmt(folder["size"] * 1024)
                     suggested = self.place_directory(folder, all_tapes)
                     res.append(
                         f"{folder['original_directory']} ({size_str} as of {folder.get('size_queried', 'Unknown date')}) -> (suggested: {suggested})"
@@ -165,38 +165,40 @@ class JsonDatabase:
             elif state == "archiving_queued":
                 res.append("[archiving_queued]")
                 for folder in group:
-                    size_str = self.sizeof_fmt(folder["size"])
+                    size_str = self.sizeof_fmt(folder["size"] * 1024)
                     res.append(
                         f"{folder['original_directory']} ({size_str} as of {folder.get('size_queried', 'Unknown date')}) -> {folder['tape']}"
                     )
             elif state == "archiving":
                 res.append("[archiving]")
                 for folder in group:
-                    size_str = self.sizeof_fmt(folder["size"])
+                    size_str = self.sizeof_fmt(folder["size"] * 1024)
                     res.append(
                         f"{folder['original_directory']} ({size_str}) -> {folder['tape']}"
                     )
             elif state == "archived":
                 res.append("Tape overview:")
-                for tape in all_tapes:
+                for tape in sorted(all_tapes):
                     tape_entries = sorted(
                         [folder for folder in self.data if folder.get("tape") == tape],
                         key=lambda x: -float(x["size"]),
                     )
-                    total_size = sum(folder.get("size") for folder in tape_entries)
-                    maxsize = ConfigReader().get_maxsize()
+                    total_size = (
+                        sum(folder.get("size") for folder in tape_entries) * 1024
+                    )
+                    maxsize = ConfigReader().get_maxsize() * 1024
                     res.append(
-                        f"{tape} {humanize.naturalsize(total_size, binary=True)} / {humanize.naturalsize(ConfigReader().get_maxsize(), binary=True)} ({total_size / maxsize * 100:.2f}%)"
+                        f"{tape} {humanize.naturalsize(total_size, binary=True)} / {humanize.naturalsize(maxsize, binary=True)} ({total_size / maxsize * 100:.2f}%)"
                     )
                     for entry in tape_entries:
-                        size_str = self.sizeof_fmt(entry["size"])
+                        size_str = self.sizeof_fmt(entry["size"] * 1024)
                         if entry["state"] == "archived":
                             res.append(
                                 f"    {entry['original_directory']} ({size_str}) {entry['description']}"
                             )
                         else:
                             res.append(
-                                f"    {entry['original_directory']} ({size_str}) {entry['description']} [{entry['state']}]"
+                                f"\033[33m    {entry['original_directory']} ({size_str}) {entry['description']} [{entry['state']}]\033[0m"
                             )
                 res.append("")  # empty line between tapes
             res.append("")  # empty line between sections

@@ -11,7 +11,7 @@ def setup_db():
         patcher.fs.create_file("/var/lib/pyarchive/database.json", contents="[]")
         patcher.fs.create_file(
             "/etc/pyarchive.conf",
-            contents="[Device]\nlibrary = /dev/sch0 \ndrive_serial=10WT017752\n[General]\ntape_max_size=17000000000000",
+            contents="[Device]\nlibrary = /dev/sch0 \ndrive_serial=10WT017752\n[General]\ntape_max_size=17000000000",
         )
         db = JsonDatabase()
         yield db
@@ -76,36 +76,36 @@ def test_print(setup_db):
     db.create_entry("/path/to/folder", "Description1")
 
     entry = db.create_entry("/folder1", "Description folder 1")
-    entry = db.set_prepared(entry, 9e12)
+    entry = db.set_prepared(entry, 9e9)
     entry = db.create_entry("/folder2", "Description folder 2")
-    entry = db.set_prepared(entry, 7e12)
+    entry = db.set_prepared(entry, 7e9)
 
     entry = db.create_entry("/folder3", "Description folder 3")
-    entry = db.set_prepared(entry, 2e10)
+    entry = db.set_prepared(entry, 2e7)
     entry = db.set_archiving_queued(entry, "AAK123")
     entry = db.create_entry("/folder4", "Description folder 4")
-    entry = db.set_prepared(entry, 5e12)
+    entry = db.set_prepared(entry, 5e9)
     entry = db.set_archiving_queued(entry, "AAK123")
 
     entry = db.create_entry("/folder5", "Description folder 5")
-    entry = db.set_prepared(entry, 1.01e9)
+    entry = db.set_prepared(entry, 1.01e6)
     entry = db.set_archiving_queued(entry, "AAK125")
     entry = db.set_archiving(entry, "folder5")
 
     entry = db.create_entry("/folder6", "Description folder 6")
-    entry = db.set_prepared(entry, 2e12)
+    entry = db.set_prepared(entry, 2e9)
     entry = db.set_archiving_queued(entry, "AAK123")
     entry = db.set_archiving(entry, "folder6")
     entry = db.set_archived(entry)
 
     entry = db.create_entry("/folder7", "Description folder 7")
-    entry = db.set_prepared(entry, 1e12)
+    entry = db.set_prepared(entry, 1e9)
     entry = db.set_archiving_queued(entry, "AAK123")
     entry = db.set_archiving(entry, "folder7")
     entry = db.set_archived(entry)
 
     entry = db.create_entry("/folder8", "Description folder 8")
-    entry = db.set_prepared(entry, 7e12)
+    entry = db.set_prepared(entry, 7e9)
     entry = db.set_archiving_queued(entry, "AAK124")
     entry = db.set_archiving(entry, "folder8")
     entry = db.set_archived(entry)
@@ -124,27 +124,27 @@ def test_print(setup_db):
         /path/to/folder: Description1
 
         [prepared]
-        /folder1 (8.2 TiB as of <date>) -> (suggested: AAK124)
+        /folder1 (8.4 TiB as of <date>) -> (suggested: AAK124)
             Description folder 1
-        /folder2 (6.4 TiB as of <date>) -> (suggested: AAK123)
+        /folder2 (6.5 TiB as of <date>) -> (suggested: AAK123)
             Description folder 2
 
         [archiving_queued]
-        /folder3 (18.6 GiB as of <date>) -> AAK123
-        /folder4 (4.5 TiB as of <date>) -> AAK123
+        /folder3 (19.1 GiB as of <date>) -> AAK123
+        /folder4 (4.7 TiB as of <date>) -> AAK123
 
         [archiving]
-        /folder5 (963.2 MiB) -> AAK125
+        /folder5 (986.3 MiB) -> AAK125
 
         Tape overview:
-        AAK123 7.3 TiB / 15.5 TiB (47.18%)
-            /folder4 (4.5 TiB) Description folder 4 [archiving_queued]
-            /folder6 (1.8 TiB) Description folder 6
-            /folder7 (931.3 GiB) Description folder 7
-            /folder3 (18.6 GiB) Description folder 3 [archiving_queued]
-        AAK124 6.4 TiB / 15.5 TiB (41.18%)
-            /folder8 (6.4 TiB) Description folder 8
-        AAK125 963.2 MiB / 15.5 TiB (0.01%)
-            /folder5 (963.2 MiB) Description folder 5 [archiving]
-        AAK126 0 Bytes / 15.5 TiB (0.00%)""")[1:]
+        AAK123 7.5 TiB / 15.8 TiB (47.18%)
+        \033[33m    /folder4 (4.7 TiB) Description folder 4 [archiving_queued]\033[0m
+            /folder6 (1.9 TiB) Description folder 6
+            /folder7 (953.7 GiB) Description folder 7
+        \033[33m    /folder3 (19.1 GiB) Description folder 3 [archiving_queued]\033[0m
+        AAK124 6.5 TiB / 15.8 TiB (41.18%)
+            /folder8 (6.5 TiB) Description folder 8
+        AAK125 986.3 MiB / 15.8 TiB (0.01%)
+        \033[33m    /folder5 (986.3 MiB) Description folder 5 [archiving]\033[0m
+        AAK126 0 Bytes / 15.8 TiB (0.00%)""")[1:]
     )  # remove leading newline

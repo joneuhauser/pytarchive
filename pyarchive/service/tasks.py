@@ -1,42 +1,39 @@
-from threading import Lock
-from systemd.journal import JournalHandler
-import logging
-
-logger = logging.getLogger(__name__)
-journal_handler = JournalHandler()
-journal_handler.setFormatter(logging.Formatter("%(message)s"))
-logger.addHandler(journal_handler)
-logger.setLevel(logging.INFO)
-
-operations_lock = Lock()
-running_operations = {}
+import asyncio
+from pyarchive.service.db import JsonDatabase
 
 
-async def main():
-    pass
+async def get_size(folder: str, description: str):
+    entry = JsonDatabase().create_entry(folder, description)
+    process = await asyncio.create_subprocess_exec(
+        "du",
+        "-s",
+        entry["original_path"],
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        raise ChildProcessError(stderr.decode())
+
+    size = int(stdout.decode().split()[0])
+
+    JsonDatabase().set_prepared(entry, size)
 
 
-def run_operation(command, description, function):
-    """Run the requested operation."""
-    command_type = command
+async def archive(folder, tapenumber=None):
+    # Simulate a slow operation
+    await asyncio.sleep(30)
+    return f"Archived {folder} to tape {tapenumber}"
 
-    with operations_lock:
-        if command_type in running_operations:
-            response = f"Operation '{command_type}' is already running"
-            logger.info(response)
-            return response
 
-        running_operations[command_type] = description
-        logger.info(f"Started operation: {command_type}")
+async def restore(folder, restore_path):
+    # Simulate a slow operation
+    await asyncio.sleep(10)
+    return f"Restored {folder} to {restore_path}"
 
-    try:
-        return function()
-    except Exception as e:
-        response = f"Error during operation '{command_type}': {e}"
-        logger.error(response)
-    finally:
-        with operations_lock:
-            del running_operations[command_type]
-            logger.info(f"Finished operation: {command_type}")
 
-    return response
+async def explore(tapenumber):
+    # Simulate a slow operation
+    await asyncio.sleep(50)
+    return f"Explored tape {tapenumber}"

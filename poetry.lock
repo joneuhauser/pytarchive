@@ -267,6 +267,16 @@ files = [
 ]
 
 [[package]]
+name = "systemd-python"
+version = "235"
+description = "Python interface for libsystemd"
+optional = false
+python-versions = "*"
+files = [
+    {file = "systemd-python-235.tar.gz", hash = "sha256:4e57f39797fd5d9e2d22b8806a252d7c0106c936039d1e71c8c6b8008e695c0a"},
+]
+
+[[package]]
 name = "tomli"
 version = "2.0.1"
 description = "A lil' TOML parser"
@@ -300,4 +310,4 @@ test = ["covdefaults (>=2.3)", "coverage (>=7.2.7)", "coverage-enable-subprocess
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "d23566f2d79dab60fff6b6f12c3017337ef63cdce8874ce202af45bcc57a5364"
+content-hash = "5a556399673dd32101c4eda92436c0fefc5109e9f0754e1863bfe8d58787baff"

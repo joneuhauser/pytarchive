@@ -83,6 +83,44 @@ def mock_status(state):
     return mock_result
 
 
+# ltfs output for unformatted drive
+""" sudo ltfs -o devname=10WT017752 /ltfs
+eb340 LTFS14000I LTFS starting, LTFS version 2.5.0.0 (Prelim), log level 2.
+eb340 LTFS14058I LTFS Format Specification version 2.4.0.
+eb340 LTFS14104I Launched by "ltfs -o devname=10WT017752 /ltfs".
+eb340 LTFS14105I This binary is built for Linux (x86_64).
+eb340 LTFS14106I GCC version is 11.4.0.
+eb340 LTFS17087I Kernel version: Linux version 5.15.0-112-generic (buildd@lcy02-amd64-051) (gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0, GNU ld (GNU Binutils for Ubuntu) 2.38) #122-Ubuntu SMP Thu May 23 07:48:21 UTC 2024 i386.
+eb340 LTFS17089I Distribution: DISTRIB_ID=Ubuntu.
+eb340 LTFS17089I Distribution: PRETTY_NAME="Ubuntu 22.04.4 LTS".
+eb340 LTFS14063I Sync type is "time", Sync time is 300 sec.
+eb340 LTFS17085I Plugin: Loading "sg" tape backend.
+eb340 LTFS17085I Plugin: Loading "unified" iosched backend.
+eb340 LTFS14095I Set the tape device write-anywhere mode to avoid cartridge ejection.
+eb340 LTFS30209I Opening a device through sg-ibmtape driver (10WT017752).
+eb340 LTFS30288I Opening a tape device for drive serial 10WT017752.
+eb340 LTFS30250I Opened the SCSI tape device 1.0.0.0 (/dev/sg5).
+eb340 LTFS30207I Vendor ID is IBM     .
+eb340 LTFS30208I Product ID is ULTRIUM-HH9     .
+eb340 LTFS30214I Firmware revision is Q3F5.
+eb340 LTFS30215I Drive serial is 10WT017752.
+eb340 LTFS30205I TEST_UNIT_READY (0x00) returns -20601.
+eb340 LTFS30290I Changer /dev/sg5 isn't reserved from any nodes.
+eb340 LTFS30285I The reserved buffer size of 10WT017752 is 1048576.
+eb340 LTFS30294I Setting up timeout values from RSOC.
+eb340 LTFS17160I Maximum device block size is 1048576.
+eb340 LTFS11330I Loading cartridge.
+eb340 LTFS30252I Logical block protection is disabled.
+eb340 LTFS11332I Load successful.
+eb340 LTFS17157I Changing the drive setting to write-anywhere mode.
+eb340 LTFS11005I Mounting the volume from device.
+eb340 LTFS30252I Logical block protection is disabled.
+eb340 LTFS17168E Cannot read volume: medium is not partitioned.
+eb340 LTFS14013E Cannot mount the volume from device.
+eb340 LTFS30252I Logical block protection is disabled.
+"""
+
+
 @patch("pyarchive.service.library.subprocess.run")
 def test_run_command_success(mock_run):
     with Patcher() as patcher:

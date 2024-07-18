@@ -1,6 +1,7 @@
 import subprocess
 import re
-from .config import ConfigReader
+from pyarchive.service.config import ConfigReader
+from pyarchive.service.db import JsonDatabase
 
 
 class Library:
@@ -59,6 +60,19 @@ class Library:
             for slot, info in slots.items()
             if info["status"] == "Full" and info["volume_tag"]
         }
+
+    def get_all_tapes(self):
+        db_tapes = set(
+            entry["tape"]
+            for entry in JsonDatabase().data
+            if entry.get("tape") is not None
+        )
+        try:
+            for tape in self.get_available_tapes().values():
+                db_tapes.add(tape)
+        except Exception as _:
+            pass
+        return db_tapes
 
     def get_empty_slots(self):
         slots = self.get_status()
