@@ -129,7 +129,7 @@ class Library:
                 f"Failed to create filesystem on tape {volume_tag} with device {device}: {e}"
             )
 
-    def unmount_and_unload_tape(self):
+    async def unmount_and_unload_tape(self, progress_func):
         target = self.get_empty_slots()[0]
         device = ConfigReader().get_drive_serial()
         try:

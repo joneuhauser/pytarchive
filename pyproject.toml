@@ -10,6 +10,7 @@ readme = "README.md"
 python = "^3.10"
 humanize = "^4.10.0"
 systemd-python = "^235"
+aioshutil = "^1.4"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
@@ -19,3 +20,6 @@ pyfakefs = "^5.6.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.ruff.lint.per-file-ignores]
+"ordered_copy.py" = ["E"]

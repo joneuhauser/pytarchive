@@ -2,31 +2,26 @@ from __future__ import annotations
 import argparse
 import asyncio
 from contextlib import redirect_stderr
+from dataclasses import dataclass, field
+import datetime
 import io
 import os
+import random
 import sys
 import fcntl
 import signal
-import logging
 import traceback
+from typing import Coroutine, Optional
 from pyarchive.service.db import JsonDatabase
 from pyarchive.service.library import Library
 import pyarchive.service.tasks as tasks
-from systemd.journal import JournalHandler
-
+from pyarchive.service.log import logger
 
 # Configuration
 PID_FILE = "/tmp/pyarchive_service.pid"
 SOCKET_FILE = "/tmp/pyarchive_service.sock"
 DEFAULT_PRIORITY = 100
 EXPLORE_PRIORITY = 20
-
-# Logging setup
-logger = logging.getLogger(__name__)
-journal_handler = JournalHandler(SYSLOG_IDENTIFIER="pyarchive")
-journal_handler.setFormatter(logging.Formatter("%(message)s"))
-logger.addHandler(journal_handler)
-logger.setLevel(logging.INFO)
 
 
 def recv_all(sock):
@@ -40,7 +35,52 @@ def recv_all(sock):
     return data
 
 
-def handle_command(command, client_socket, queue: WorkList):
+@dataclass
+class WorkItem:
+    priority: int
+    coroutine: Coroutine
+    description: str
+    _progress: Optional[str] = field(init=False)
+    _abort_handle: asyncio.Event = field(init=False)
+    _created: datetime.datetime = field(init=False)
+    _hashseed: float = field(init=False)
+    _running: bool = field(init=False)
+
+    def __post_init__(self):
+        self._abort_handle = asyncio.Event()
+        self._created = datetime.datetime.now()
+        self._hashseed = random.random()
+        self._progress = None
+        self._running = False
+
+    def update_progress(self, data: str):
+        self._progress = data
+
+    def is_running(self) -> bool:
+        return self._running
+
+    def request_abort(self) -> bool:
+        self._abort_handle.set()
+
+    async def run(self) -> bool:
+        self._running = True
+        await self.coroutine(self.update_progress, self._abort_handle)
+
+    def __hash__(self) -> int:
+        return hash(self._hashseed)
+
+    def format_hash(self) -> str:
+        h = hash(self) + sys.maxsize + 1
+        return f"{h:#0{10}x}"[2:10]
+
+    def __str__(self) -> str:
+        ret = f"[{self.format_hash()}] {self.priority} - {self.description}"
+        if self.is_running():
+            ret += f" [{self._progress}]"
+        return ret
+
+
+def handle_command(command, client_socket, queue: WorkList[WorkItem]):
     f = io.StringIO()
 
     parser = argparse.ArgumentParser(prog="pyarchive")
@@ -50,6 +90,9 @@ def handle_command(command, client_socket, queue: WorkList):
     subparsers.add_parser("queue")
     subparsers.add_parser("summary")
     subparsers.add_parser("todo")
+
+    parser_abort = subparsers.add_parser("abort")
+    parser_abort.add_argument("task")
 
     # Asynchronous commands
     parser_prepare = subparsers.add_parser("prepare")
@@ -81,12 +124,8 @@ def handle_command(command, client_socket, queue: WorkList):
         return
 
     if args.command == "queue":
-        data = sorted(queue, key=lambda i: i[0])  # Sort by priority
-        top = queue.current
-        res = "\n".join(
-            f"{i}: {item[2]} ({item[0]}) {'[running]' if item == top else ''}"
-            for i, item in enumerate(data)
-        )
+        data = sorted(queue, key=lambda i: i.priority)  # Sort by priority
+        res = "\n".join(str(item) for i, item in enumerate(data))
 
         client_socket.write(f"Queue state: {len(queue)} tasks\n{res}".encode())
     elif args.command == "summary":
@@ -97,24 +136,59 @@ def handle_command(command, client_socket, queue: WorkList):
         )
     elif args.command == "todo":
         client_socket.write("TODO list:\n".encode())
+    elif args.command == "abort":
+        for task in queue:
+            if task.format_hash() == args.task:
+                if task.is_running():
+                    task.request_abort()
+                    client_socket.write(b"Task abort scheduled, cleaning up...")
+                else:
+                    queue.remove(task)
+                    client_socket.write(b"Task removed from queue")
+                break
+        client_socket.write(b"Task ID not found")
     elif args.command == "prepare":
         description = f"Preparing folder: {args.folder} - {args.description}"
-        queue.append((args.priority, tasks.get_size(args.folder), description))
+        queue.append(
+            [
+                args.priority,
+                lambda progress: tasks.get_size(args.folder, progress),
+                description,
+            ]
+        )
     elif args.command == "archive":
         description = f"Archiving folder: {args.folder} to tape {args.tapenumber}"
         queue.append(
-            (args.priority, tasks.archive(args.folder, args.tapenumber), description)
+            WorkItem(
+                args.priority,
+                lambda progress, abort: tasks.archive(
+                    args.folder, args.tapenumber, progress, abort
+                ),
+                description,
+            )
         )
         client_socket.write(b"Archiving queued")
     elif args.command == "restore":
         description = f"Restoring folder: {args.folder} to {args.restore_path}"
         queue.append(
-            (args.priority, tasks.restore(args.folder, args.restore_path), description)
+            [
+                args.priority,
+                lambda progress: tasks.restore(
+                    args.folder, args.restore_path, progress
+                ),
+                description,
+            ]
         )
         client_socket.write(b"Restoring queued")
     elif args.command == "explore":
         description = f"Exploring tape: {args.tapenumber}"
-        queue.append((args.priority, tasks.explore(args.tapenumber), description))
+        queue.append(
+            [
+                args.priority,
+                lambda progress: tasks.explore(args.tapenumber, progress),
+                description,
+            ]
+        )
         client_socket.write(b"Exploring queued")
     else:
         client_socket.write(parser.format_help().encode())
@@ -123,10 +197,9 @@ def handle_command(command, client_socket, queue: WorkList):
 class WorkList(list):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.current = None
 
-    def get_top(self):
-        return sorted(self, key=lambda i: i[0])[0]
+    def get_top(self) -> WorkItem:
+        return sorted(self, key=lambda i: i.priority)[0]
 
 
 def handle_client(client_socket, queue):
@@ -162,22 +235,22 @@ class PyArchiveServer(asyncio.Protocol):
         handle_command(command, self.transport, self.queue)
 
 
-async def worker(queue):
+async def worker(queue: WorkList[WorkItem]):
     while True:
         if not len(queue):
             await asyncio.sleep(1)
             continue
 
         item = queue.get_top()
-        queue.current = item
-        _, coroutine, description = item
+        description = item.description
+
         logger.info(f"starting {description}")
         try:
-            result = await coroutine
+            result = await item.run()
             logger.info(f"{description} - Result: {result}\n")
 
         except Exception as e:
-            logger.info(f"{description} - Error: {e}\n")
+            logger.info(f"{description} - Error: {e} {traceback.format_exc()}\n")
         queue.remove(item)
 
 
