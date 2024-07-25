@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 from typing import Optional
 from pyarchive.service.log import logger
 
@@ -19,6 +20,8 @@ async def run_command(
     *args,
     stdout_callback=lambda _: None,
     abort_event: Optional[asyncio.Event] = None,
+    preserve_stdout=False,
+    preserve_stderr=True,
 ):
     print(command, *args)
     process = await asyncio.create_subprocess_exec(
@@ -26,15 +29,19 @@ async def run_command(
     )
 
     # Function to log output in real time
-    async def log_output(stream, log_method):
+    async def log_output(stream, log_method, preserve=False):
+        res = []
         while True:
             line = await stream.readline()
             if line:
                 dec = line.decode().strip()
                 log_method(dec)
                 stdout_callback(dec)
+                if preserve:  # to avoid memory overruns
+                    res.append(dec)
             else:
                 break
+        return "\n".join(res)
 
     async def monitor_abort():
         while True:
@@ -45,10 +52,12 @@ async def run_command(
             await asyncio.sleep(0.1)
 
     # Log both stdout and stderr
-    await asyncio.gather(
-        log_output(process.stdout, logger.info),
-        log_output(process.stderr, logger.error),
+    stdout, stderr, _ = await asyncio.gather(
+        log_output(process.stdout, logger.info, preserve_stdout),
+        log_output(process.stderr, logger.error, preserve_stderr),
         monitor_abort(),
     )
 
-    await process.wait()
+    exit_code = await process.wait()
+    if exit_code != 0:
+        raise subprocess.CalledProcessError(exit_code, command, stdout, stderr)

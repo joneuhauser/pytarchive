@@ -1,7 +1,11 @@
+import asyncio
+import os
 import subprocess
 import re
 from pyarchive.service.config import ConfigReader
 from pyarchive.service.db import JsonDatabase
+from pyarchive.service.utils import run_command
+from pyarchive.service.log import logger
 
 
 class Library:
@@ -17,9 +21,9 @@ class Library:
             raise RuntimeError(f"Failed to get status from mtx: {e}")
 
     def get_status(self):
-        self.status_output = self._get_status()
+        status_output = self._get_status()
         slots = {}
-        for line in self.status_output.splitlines():
+        for line in status_output.splitlines():
             match = re.match(
                 r"\s*Storage Element (\d+):(\w+)( .*:VolumeTag=(\w+))?", line
             )
@@ -89,55 +93,137 @@ class Library:
                 return slot
         return None
 
-    def load_tape(self, volume_tag):
+    def drive_empty(self) -> bool:
         slots = self.get_status()
-        assert 0 in slots
-        if slots[0]["status"] != "Empty":
+        return slots[0]["status"] == "Empty"
+
+    async def _load_tape(self, volume_tag, progress):
+        if not self.drive_empty():
             raise ValueError("Drive is not empty")
         device = ConfigReader().get_library_path()
 
         slot_id = self.find_tape(volume_tag)
-        try:
-            subprocess.run(["mtx", "-d", device, "load", str(slot_id)])
-            print(f"Tape loaded from slot {slot_id}")
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Failed to load tape from slot {slot_id}: {e}")
+        progress(f"Loading tape from slot {slot_id}...")
+        await run_command("mtx", "-d", device, "load", str(slot_id))
+        progress(f"Tape loaded from slot {slot_id}")
 
-    def mount_tape(self):
+    async def _mount_tape(self, progress):
         device = ConfigReader().get_drive_serial()
-        slots = self.get_status()
-        if 0 not in slots:
+        progress("Mounting tape on /ltfs...")
+        if self.drive_empty():
             raise ValueError("No tape loaded")
-        try:
-            subprocess.run(["ltfs", "-o", f"devname={device}", "/ltfs"])
-            print(f"Tape mounted on /ltfs with device {device}")
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Failed to mount tape with device {device}: {e}")
+        await run_command("ltfs", "-o", f"devname={device}", "/ltfs")
+        progress(f"Tape mounted on /ltfs with device {device}")
 
-    def _create_filesystem(self):
+    async def _create_filesystem(self, progress):
         """Creates a file system on the currently mounted tape"""
         slots = self.get_status()
         device = ConfigReader().get_drive_serial()
-        if 0 not in slots:
+        if self.drive_empty():
             raise ValueError("No tape loaded")
-        volume_tag = slots[0]["volume_tag"]
-        try:
-            subprocess.run(["mkltfs", "-d", device, "-s", volume_tag])
-            print(f"Filesystem created on tape {volume_tag} with device {device}")
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(
-                f"Failed to create filesystem on tape {volume_tag} with device {device}: {e}"
-            )
+        volume_tag: str = slots[0]["volume_tag"]
+        assert volume_tag.endswith("L9")
+        progress(f"Creating filesystem on tape {volume_tag}...")
+        await run_command("mkltfs", "-d", device, "-s", volume_tag[0:6], "-c")
+        progress(f"Filesystem created on tape {volume_tag} with device {device}")
 
-    async def unmount_and_unload_tape(self, progress_func):
+    async def _unmount_tape(self, progress):
+        progress("Unmounting tape...")
+        await run_command("umount", "/ltfs")
+        progress("Tape unmounted")
+
+    async def _unload(self, progress):
         target = self.get_empty_slots()[0]
         device = ConfigReader().get_drive_serial()
-        try:
-            subprocess.run(["umount", "/ltfs"])
-            print("Tape unmounted from /ltfs")
-            subprocess.run(["mtx", "-d", device, "unload", str(target)])
-            print(f"Tape unloaded into slot {target}")
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(
-                f"Failed to unmount and unload tape into slot {target}: {e}"
+        progress("Unloading tape...")
+        await run_command(["mtx", "-d", device, "unload", str(target)])
+        progress(f"Tape unloaded into slot {target}")
+
+    async def is_mounted(self):
+        return os.path.ismount("/ltfs")
+
+    def check_tape_consistency(self):
+        status = self.get_status()
+        tape_barcode = status[0]["volume_tag"]
+        on_tape = JsonDatabase().get_directories_on_tape(tape_barcode)
+        should_be_on_tape = sorted(
+            [i["path_on_tape"] for i in on_tape if i["state"] == "archived"]
+        )
+        if any(i.contains("/") for i in should_be_on_tape):
+            raise NotImplementedError("Subpath folders need extra work")
+        assert self.is_mounted()
+
+        on_tape = sorted([name for name in os.listdir("/ltfs") if os.path.isdir(name)])
+
+        if on_tape != should_be_on_tape:
+            logger.error(
+                r"""Tape consistency check on %s failed. 
+                Expected contents:\n%s, 
+                Actual contents:\n%s.""",
+                tape_barcode,
+                "\n".join(should_be_on_tape),
+                "\n".join(on_tape),
             )
+
+    async def ensure_tape_unmounted(self, progress):
+        if self.is_mounted():
+            await self._unmount_tape(progress)
+
+    async def ensure_tape_unloaded(self, progress, cancel_event: asyncio.Event):
+        if not self.drive_empty():
+            await self.ensure_tape_unmounted(progress)
+            if cancel_event.set():
+                return
+            await self._unload(progress)
+
+    async def ensure_tape_loaded(
+        self, tape_barcode, progress, cancel_event: asyncio.Event
+    ):
+        # Maybe we already have the correct tape loaded?
+        status = self.get_status()
+        if not self.drive_empty():
+            if status[0]["volume_tag"] == tape_barcode:
+                # This is the correct tape. Great, we're done
+                return
+            await self.ensure_tape_unloaded(progress, cancel_event)
+
+        if cancel_event.set():
+            return
+        assert self.drive_empty()
+
+        await self._load_tape(tape_barcode, progress)
+
+    async def ensure_tape_mounted(
+        self, tape_barcode, progress, cancel_event: asyncio.Event
+    ):
+        status = self.get_status()
+        if not self.drive_empty():
+            if status[0]["volume_tag"] == tape_barcode and self.is_mounted():
+                # The correct tape is mounted
+                self.check_tape_consistency()
+                return
+
+        # Make sure the tape is loaded
+        await self.ensure_tape_loaded(tape_barcode, progress, cancel_event)
+
+        if cancel_event.set():
+            return
+
+        # Now we check if we expect a filesystem on this tape
+        on_tape = JsonDatabase().get_directories_on_tape(tape_barcode)
+        on_tape = [i for i in on_tape if i["state"] == "archived"]
+        should_have_fs = len(on_tape) > 0
+        if not should_have_fs:
+            # We create a filesystem. If there is already one, the command will error
+            try:
+                await self._create_filesystem(progress)
+            except subprocess.CalledProcessError as e:
+                if "LTFS15047E Medium is already formatted" not in e.stderr:
+                    raise e
+
+        if cancel_event.set():
+            return
+
+        await self._mount_tape(progress)
+
+        self.check_tape_consistency()
