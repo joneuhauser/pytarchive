@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import datetime
 import io
 import os
+from pathlib import Path
 import random
 import sys
 import fcntl
@@ -106,11 +107,13 @@ def handle_command(command: bytes, client_socket, queue: WorkList[WorkItem]):
     parser_archive = subparsers.add_parser("archive")
     parser_archive.add_argument("folder")
     parser_archive.add_argument("tapelabel")
+    parser_archive.add_argument("-t", "--targetname", default=None)
     parser_archive.add_argument("--priority", type=int, default=DEFAULT_PRIORITY)
 
     parser_restore = subparsers.add_parser("restore")
     parser_restore.add_argument("folder")
     parser_restore.add_argument("restore_path")
+    parser_restore.add_argument("-s", "--subfolder", default="")
     parser_restore.add_argument("--priority", type=int, default=DEFAULT_PRIORITY)
 
     parser_explore = subparsers.add_parser("explore")
@@ -174,43 +177,103 @@ def handle_command(command: bytes, client_socket, queue: WorkList[WorkItem]):
         )
         client_socket.write(b"Preparation queued")
     elif args.command == "archive":
-        description = f"Archiving folder: {args.folder} to tape {args.tapenumber}"
+        description = f"Archiving folder: {args.folder} to tape {args.tapelabel}"
         # Check that the free size on this tape is enough
-        entry = JsonDatabase()._get_folder(args.folder)
-        size = entry["size"] * 1024
+        try:
+            entry = JsonDatabase()._get_folder(args.folder)
+        except ValueError:
+            client_socket.write(
+                f"Folder not prepared yet. Run pyarchive prepare {args.folder} first.".encode()
+            )
+            return
+
+        if entry["state"] != "prepared":
+            client_socket.write(
+                "Folder is in the wrong state according to database. Maybe it's already archived?".encode()
+            )
+            return
+        size = entry["size"]
         on_tape = sum(
-            e["size"] for e in JsonDatabase().get_directories_on_tape(args.tapenumber)
+            e["size"] for e in JsonDatabase().get_directories_on_tape(args.tapelabel)
         )
         maxsize = ConfigReader().get_maxsize()
         if maxsize < on_tape + size:
             client_socket.write(
                 dedent(f"""
-                                        There is most likely not enough space on that tape. 
-                                        Required: {humanize.naturalsize(size * 1024, binary=True)}
-                                        Available: {humanize.naturalsize((maxsize- on_tape) * 1024, binary=True)}.
-                                        Please select a different tape""").encode()
+                        There is most likely not enough space on that tape. 
+                            Required: {humanize.naturalsize(size * 1024, binary=True)}
+                            Available: {humanize.naturalsize((maxsize- on_tape) * 1024, binary=True)}.
+                        Please select a different tape.""").encode()
             )
+            return
+        if Library().find_tape(args.tapelabel) is None:
+            client_socket.write(
+                f"Requested tape not found. Available tapes: {sorted(list(Library().get_available_tapes().values()))}".encode()
+            )
+            return
+        target_filename = args.targetname or JsonDatabase().suggest_ontape_name(entry)
+        print(target_filename)
+        if target_filename == "" or target_filename in [
+            e.get("path_on_tape")
+            for e in JsonDatabase().get_directories_on_tape(args.tapelabel)
+        ]:
+            client_socket.write(
+                f"Directory {target_filename} already exists on tape {args.tapelabel}, choose a different name".encode()
+            )
+            return
+
+        try:
+            os.stat(args.folder)
+        except (FileNotFoundError, PermissionError) as e:
+            client_socket.write(f"Error: {e}".encode())
+            return
+
+        JsonDatabase().set_archiving_queued(entry, args.tapelabel, target_filename)
 
         queue.append(
             WorkItem(
                 args.priority,
-                lambda progress, abort: tasks.archive(
-                    args.folder, args.tapenumber, progress, abort
-                ),
+                lambda progress, abort: tasks.archive(entry, progress, abort),
                 description,
             )
         )
         client_socket.write(b"Archiving queued")
     elif args.command == "restore":
+        try:
+            entry = JsonDatabase()._get_folder(args.folder)
+        except ValueError:
+            client_socket.write(
+                f"Folder not prepared yet. Run pyarchive prepare {args.folder} first.".encode()
+            )
+            return
+
+        if entry["state"] != "archived":
+            client_socket.write("Folder not archived yet.".encode())
+            return
+
         description = f"Restoring folder: {args.folder} to {args.restore_path}"
+        restore_path = Path(args.restore_path)
+        # If the restore path exists, it needs to be empty.
+        if restore_path.is_dir():
+            if not len(list(restore_path.iterdir())) == 0:
+                client_socket.write("Directory to restore to is not empty".encode())
+                return
+            restore_path.rmdir()
+
+        subfolder: str = args.subfolder
+        if subfolder != "":
+            subfolder.removeprefix("/")
+            if not subfolder.endswith("/"):
+                subfolder = subfolder + "/"
+
         queue.append(
-            [
+            WorkItem(
                 args.priority,
                 lambda progress, abort: tasks.restore(
-                    args.folder, args.restore_path, progress
+                    entry, args.restore_path, subfolder, progress, abort
                 ),
                 description,
-            ]
+            )
         )
         client_socket.write(b"Restoring queued")
     elif args.command == "explore":

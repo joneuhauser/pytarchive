@@ -26,3 +26,7 @@ class ConfigReader:
 
     def get_maxsize(self):
         return int(self.get("General", "tape_max_size"))
+
+    def get_exclude_folders(self):
+        entry = self.get("General", "exclude_folders")
+        return [e.strip() for e in entry.split(",")]

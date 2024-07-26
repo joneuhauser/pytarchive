@@ -1,6 +1,7 @@
 import itertools
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import List, Dict, Any
 
 import humanize
@@ -66,9 +67,12 @@ class JsonDatabase:
                 f"Invalid state transition from {entry['state']} to prepared."
             )
 
-    def set_archiving_queued(self, entry: Dict[str, Any], tape: str) -> Dict[str, Any]:
+    def set_archiving_queued(
+        self, entry: Dict[str, Any], tape: str, path_on_tape: str
+    ) -> Dict[str, Any]:
         if entry["state"] == "prepared":
             entry["state"] = "archiving_queued"
+            entry["path_on_tape"] = path_on_tape
             entry["tape"] = tape
             self._write_json()
             return entry
@@ -77,19 +81,8 @@ class JsonDatabase:
                 f"Invalid state transition from {entry['state']} to archiving_queued."
             )
 
-    def set_archiving(self, entry: Dict[str, Any], path_on_tape: str) -> Dict[str, Any]:
-        if entry["state"] == "archiving_queued":
-            entry["state"] = "archiving"
-            entry["path_on_tape"] = path_on_tape
-            self._write_json()
-            return entry
-        else:
-            raise ValueError(
-                f"Invalid state transition from {entry['state']} to archiving."
-            )
-
     def set_archived(self, entry: Dict[str, Any]) -> Dict[str, Any]:
-        if entry["state"] == "archiving":
+        if entry["state"] == "archiving_queued":
             entry["state"] = "archived"
             entry["archived"] = datetime.now().strftime("%b %d %Y %H:%M:%S")
             self._write_json()
@@ -98,6 +91,13 @@ class JsonDatabase:
             raise ValueError(
                 f"Invalid state transition from {entry['state']} to archived."
             )
+
+    def suggest_ontape_name(self, entry: Dict[str, Any]) -> str:
+        path = Path(entry["original_directory"])
+        last_three = path.parts[1:][-3:]
+        res = "_".join(last_three).replace(" ", "_").removeprefix("_")
+        assert "/" not in res
+        return res
 
     def get_entries_by_state(self, state: str) -> List[Dict[str, Any]]:
         return [folder for folder in self.data if folder["state"] == state]
@@ -135,8 +135,7 @@ class JsonDatabase:
             "preparing": 1,
             "prepared": 2,
             "archiving_queued": 3,
-            "archiving": 4,
-            "archived": 5,
+            "archived": 4,
         }
         sorted_data = sorted(self.data, key=lambda x: state_order.get(x["state"], 99))
 
@@ -170,13 +169,6 @@ class JsonDatabase:
                     size_str = self.sizeof_fmt(folder["size"] * 1024)
                     res.append(
                         f"{folder['original_directory']} ({size_str} as of {folder.get('size_queried', 'Unknown date')}) -> {folder['tape']}"
-                    )
-            elif state == "archiving":
-                res.append("[archiving]")
-                for folder in group:
-                    size_str = self.sizeof_fmt(folder["size"] * 1024)
-                    res.append(
-                        f"{folder['original_directory']} ({size_str}) -> {folder['tape']}"
                     )
             elif state == "archived":
                 res.append("Tape overview:")

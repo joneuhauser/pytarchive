@@ -1,5 +1,11 @@
 import asyncio
-from typing import Optional
+import os
+from pathlib import Path
+import shutil
+from typing import List, Optional
+
+import humanize
+from pyarchive.service.config import ConfigReader
 from pyarchive.service.db import JsonDatabase
 from pyarchive.service.library import Library
 from pyarchive.service.utils import run_command
@@ -30,22 +36,163 @@ async def get_size(entry, progress, abort: asyncio.Event):
     JsonDatabase().set_prepared(entry, size)
 
 
+async def check_folders_equal(
+    path1: str, excludes1: List[str], path2: str, excludes2: List[str]
+) -> bool:
+    """Check whether two folders have the same contents by simply comparing the file sizes of each file."""
+
+    excludes1 = sum((["-not", "-path", f"./{i}/*"] for i in excludes1), [])
+    excludes2 = sum((["-not", "-path", f"./{i}/*"] for i in excludes2), [])
+    # Now check that we copied everything
+    filesizes, _ = await run_command(
+        "find",
+        *excludes1,
+        "-type",
+        "f",
+        "-printf",
+        "%p %s\n",
+        preserve_stderr=True,
+        preserve_stdout=True,
+        cwd=path1,
+    )
+
+    filesizes_on_tape, _ = await run_command(
+        "find",
+        *excludes2,
+        "-type",
+        "f",
+        "-printf",
+        "%p %s\n",
+        preserve_stderr=True,
+        preserve_stdout=True,
+        cwd=path2,
+    )
+
+    filesizes = sorted(filesizes.splitlines())
+    filesizes_on_tape = sorted(filesizes_on_tape.splitlines())
+
+    return filesizes == filesizes_on_tape
+
+
 async def archive(
-    folder, tape_label, progress_callback, abort_event: Optional[asyncio.Event] = None
+    folder, progress_callback, abort_event: Optional[asyncio.Event] = None
 ):
+    tape_label = folder["tape"]
+    await Library().ensure_tape_mounted(tape_label, progress_callback, abort_event)
+
+    if abort_event.is_set():
+        return
+
+    # Now check that there is actually enough free space.
+
+    stdout, _ = await run_command(
+        "df",
+        preserve_stdout=True,
+    )
+    found = False
+    for line in stdout.splitlines():
+        comp = line.strip().split()
+        if comp[-1] == "/ltfs":
+            available = comp[3]
+
+            if folder["size"] > int(available):
+                raise ValueError(
+                    f"Not enough space on tape {tape_label}. Available: {humanize.naturalsize(available, binary=True)}. Required: {humanize.naturalsize(folder['size'], binary=True)}"
+                )
+            found = True
+    assert found
+
+    path = "/ltfs/" + folder["path_on_tape"]
+
+    # Great. Let's create a directory
+    os.mkdir(path)
+
+    # Find all files and pass that to ltfs_ordered_copy
+    excludes = sum(
+        (["-not", "-path", f"./{i}/*"] for i in ConfigReader().get_exclude_folders()),
+        [],
+    )
+    files, _ = await run_command(
+        "find",
+        *excludes,
+        "-type",
+        "f",
+        preserve_stderr=True,
+        preserve_stdout=True,
+        abort_event=abort_event,
+        cwd=folder["original_directory"],
+    )
+
+    if abort_event.is_set():
+        os.rmdir(path)
+        return
+
+    # Copy
     await run_command(
         "python3",
-        "test_progress.py",
-        stdout_callback=progress_callback,
+        str(Path(__file__).parent / "ordered_copy.py"),
+        "-t",
+        path,
+        "--keep-tree=.",
+        stdin=files,
+        stdout_callback=lambda str: progress_callback(f"Copying: {str}"),
+        abort_event=abort_event,
+        cwd=folder["original_directory"],
+    )
+
+    if abort_event.is_set():
+        # Afterwards, we don't allow to abort, we're practically done anyway.
+        os.rmdir(path)
+        return
+
+    equal = await check_folders_equal(
+        folder["original_directory"], ConfigReader().get_exclude_folders(), path, []
+    )
+    if not equal:
+        raise ValueError("After-copy consistency check failed. Please check manually.")
+
+    JsonDatabase().set_archived(folder)
+
+    # Finally, delete the source folder
+    shutil.rmtree(folder["original_directory"])
+
+    return f"Archived {folder['original_directory']} to tape {tape_label} and deleted source folder"
+
+
+async def restore(
+    folder,
+    restore_path: Path,
+    subfolder="",
+    progress_callback=lambda _: None,
+    abort_event: Optional[asyncio.Event] = None,
+):
+    tape_label = folder["tape"]
+    await Library().ensure_tape_mounted(tape_label, progress_callback, abort_event)
+
+    if abort_event.is_set():
+        return
+
+    # Create the restore path
+    Path(restore_path).mkdir(parents=True)
+
+    ontape = f"/ltfs/{folder['path_on_tape']}/{subfolder}"
+
+    # Copy
+    await run_command(
+        "python3",
+        str(Path(__file__).parent / "ordered_copy.py"),
+        ontape,
+        str(restore_path),
+        "-a",
+        stdout_callback=lambda str: progress_callback(f"Restoring: {str}"),
         abort_event=abort_event,
     )
-    return f"Archived {folder} to tape {tape_label}"
 
+    equal = await check_folders_equal(ontape, [], str(restore_path), [])
+    if not equal:
+        raise ValueError("After-copy consistency check failed. Please check manually.")
 
-async def restore(folder, restore_path):
-    # Simulate a slow operation
-    await asyncio.sleep(10)
-    return f"Restored {folder} to {restore_path}"
+    return f"Restored [{tape_label}] {ontape} to {restore_path}"
 
 
 async def explore(tape_label, time: int, progress_callback, abort_event: asyncio.Event):

@@ -22,11 +22,24 @@ async def run_command(
     abort_event: Optional[asyncio.Event] = None,
     preserve_stdout=False,
     preserve_stderr=True,
+    stdin=None,
+    **kwargs,
 ):
     print(command, *args)
     process = await asyncio.create_subprocess_exec(
-        command, *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        command,
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        stdin=asyncio.subprocess.PIPE,
+        **kwargs,
     )
+
+    if stdin is not None:
+        stdin = stdin.encode()
+        process.stdin.write(stdin)
+        await process.stdin.drain()
+        process.stdin.close()
 
     # Function to log output in real time
     async def log_output(stream, log_method, preserve=False, result=None):

@@ -464,6 +464,7 @@ except Exception as e:
 if len(args.SOURCE) == 0:
     logger.log(NOTSET + 1, "Fetching source list from stdin")
     for line in sys.stdin:
+        print(line)
         args.SOURCE.append(line.rstrip("\r\n"))
     logger.log(NOTSET + 1, "Source: {}".format(args.SOURCE))
 
@@ -486,6 +487,7 @@ for s in args.SOURCE:
         if args.recursive:
             if len(args.keep_tree):
                 dst = dst + "/" + s[len(args.keep_tree) :]
+                print(args.keep_tree, len(args.keep_tree), dst)
                 dst = os.path.normpath(dst)
                 (new_d, t) = os.path.split(dst)
                 if not os.path.exists(new_d):
