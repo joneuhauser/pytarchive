@@ -9,14 +9,20 @@ class ConfigReader:
         self.config = configparser.ConfigParser()
         self.read_config()
 
-    def read_config(self):
+    def read_config(self, default=None):
         try:
             self.config.read(self.config_path)
         except Exception as e:
+            if default is not None:
+                return default
             raise RuntimeError(f"Failed to read configuration file: {e}")
 
-    def get(self, section, attribute):
-        return self.config.get(section, attribute)
+    def get(self, section, attribute, default=None):
+        try:
+            return self.config.get(section, attribute)
+        except Exception as e:
+            print(e)
+            return default
 
     def get_drive_serial(self):
         return self.get("Device", "drive_serial")
@@ -30,3 +36,6 @@ class ConfigReader:
     def get_exclude_folders(self):
         entry = self.get("General", "exclude_folders")
         return [e.strip() for e in entry.split(",")]
+
+    def get_logging_config(self):
+        return self.get("General", "logconfig")

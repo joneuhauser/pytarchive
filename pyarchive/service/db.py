@@ -56,7 +56,7 @@ class JsonDatabase:
         return new_entry
 
     def set_prepared(self, entry: Dict[str, Any], size: int) -> Dict[str, Any]:
-        if entry["state"] == "preparing":
+        if entry["state"] in ("preparing", "prepared"):
             entry["state"] = "prepared"
             entry["size"] = size
             entry["size_queried"] = datetime.now().strftime("%b %d %Y %H:%M:%S")

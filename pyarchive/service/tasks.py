@@ -8,11 +8,11 @@ import humanize
 from pyarchive.service.config import ConfigReader
 from pyarchive.service.db import JsonDatabase
 from pyarchive.service.library import Library
-from pyarchive.service.utils import run_command
+from pyarchive.service.command_runner import run_command
 
 
-async def get_size(entry, progress, abort: asyncio.Event):
-    assert entry in JsonDatabase().data
+async def get_size(folder: str, progress, abort: asyncio.Event):
+    entry = JsonDatabase()._get_folder(folder)
     progress(f"Querying size of folder {entry['original_directory']}")
 
     stdout, _ = await run_command(
@@ -29,11 +29,12 @@ async def get_size(entry, progress, abort: asyncio.Event):
         return
 
     size = int(stdout.split()[0])
-    print(size)
 
     assert entry in JsonDatabase().data
 
     JsonDatabase().set_prepared(entry, size)
+
+    return size
 
 
 async def check_folders_equal(
@@ -75,9 +76,10 @@ async def check_folders_equal(
 
 
 async def archive(
-    folder, progress_callback, abort_event: Optional[asyncio.Event] = None
+    folder: str, progress_callback, abort_event: Optional[asyncio.Event] = None
 ):
-    tape_label = folder["tape"]
+    entry = JsonDatabase()._get_folder(folder)
+    tape_label = entry["tape"]
     await Library().ensure_tape_mounted(tape_label, progress_callback, abort_event)
 
     if abort_event.is_set():
@@ -95,14 +97,14 @@ async def archive(
         if comp[-1] == "/ltfs":
             available = comp[3]
 
-            if folder["size"] > int(available):
+            if entry["size"] > int(available):
                 raise ValueError(
-                    f"Not enough space on tape {tape_label}. Available: {humanize.naturalsize(available, binary=True)}. Required: {humanize.naturalsize(folder['size'], binary=True)}"
+                    f"Not enough space on tape {tape_label}. Available: {humanize.naturalsize(available, binary=True)}. Required: {humanize.naturalsize(entry['size'], binary=True)}"
                 )
             found = True
     assert found
 
-    path = "/ltfs/" + folder["path_on_tape"]
+    path = "/ltfs/" + entry["path_on_tape"]
 
     # Great. Let's create a directory
     os.mkdir(path)
@@ -120,7 +122,7 @@ async def archive(
         preserve_stderr=True,
         preserve_stdout=True,
         abort_event=abort_event,
-        cwd=folder["original_directory"],
+        cwd=entry["original_directory"],
     )
 
     if abort_event.is_set():
@@ -137,7 +139,7 @@ async def archive(
         stdin=files,
         stdout_callback=lambda str: progress_callback(f"Copying: {str}"),
         abort_event=abort_event,
-        cwd=folder["original_directory"],
+        cwd=entry["original_directory"],
     )
 
     if abort_event.is_set():
@@ -146,27 +148,28 @@ async def archive(
         return
 
     equal = await check_folders_equal(
-        folder["original_directory"], ConfigReader().get_exclude_folders(), path, []
+        entry["original_directory"], ConfigReader().get_exclude_folders(), path, []
     )
     if not equal:
         raise ValueError("After-copy consistency check failed. Please check manually.")
 
-    JsonDatabase().set_archived(folder)
+    JsonDatabase().set_archived(entry)
 
     # Finally, delete the source folder
-    shutil.rmtree(folder["original_directory"])
+    shutil.rmtree(entry["original_directory"])
 
-    return f"Archived {folder['original_directory']} to tape {tape_label} and deleted source folder"
+    return f"Archived {entry['original_directory']} to tape {tape_label} and deleted source folder"
 
 
 async def restore(
-    folder,
+    folder: str,
     restore_path: Path,
     subfolder="",
     progress_callback=lambda _: None,
     abort_event: Optional[asyncio.Event] = None,
 ):
-    tape_label = folder["tape"]
+    entry = JsonDatabase()._get_folder(folder)
+    tape_label = entry["tape"]
     await Library().ensure_tape_mounted(tape_label, progress_callback, abort_event)
 
     if abort_event.is_set():
@@ -175,7 +178,7 @@ async def restore(
     # Create the restore path
     Path(restore_path).mkdir(parents=True)
 
-    ontape = f"/ltfs/{folder['path_on_tape']}/{subfolder}"
+    ontape = f"/ltfs/{entry['path_on_tape']}/{subfolder}"
 
     # Copy
     await run_command(
@@ -199,7 +202,6 @@ async def explore(tape_label, time: int, progress_callback, abort_event: asyncio
     await Library().ensure_tape_mounted(tape_label, progress_callback, abort_event)
 
     start_time = asyncio.get_event_loop().time()
-    print(start_time, time)
     while asyncio.get_event_loop().time() < start_time + time:
         progress_callback(
             f"{int(asyncio.get_event_loop().time() - start_time)}s / {time}s"

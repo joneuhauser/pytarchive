@@ -2,24 +2,23 @@ from __future__ import annotations
 import argparse
 import asyncio
 from contextlib import redirect_stderr
-from dataclasses import dataclass, field
-import datetime
 import io
 import os
-from pathlib import Path
-import random
 import sys
 import fcntl
-import humanize
 import signal
-from textwrap import dedent
-import traceback
-from typing import Coroutine, Optional
-from pyarchive.service.config import ConfigReader
-from pyarchive.service.db import JsonDatabase
-from pyarchive.service.library import Library
-import pyarchive.service.tasks as tasks
+from pyarchive.service.handlers import (
+    handle_abort,
+    handle_archive,
+    handle_explore,
+    handle_prepare,
+    handle_queue,
+    handle_requeue,
+    handle_restore,
+    handle_summary,
+)
 from pyarchive.service.log import logger
+from pyarchive.service.work_queue import WorkList
 
 # Configuration
 PID_FILE = "/tmp/pyarchive_service.pid"
@@ -39,52 +38,7 @@ def recv_all(sock):
     return data
 
 
-@dataclass
-class WorkItem:
-    priority: int
-    coroutine: Coroutine
-    description: str
-    _progress: Optional[str] = field(init=False)
-    _abort_handle: asyncio.Event = field(init=False)
-    _created: datetime.datetime = field(init=False)
-    _hashseed: float = field(init=False)
-    _running: bool = field(init=False)
-
-    def __post_init__(self):
-        self._abort_handle = asyncio.Event()
-        self._created = datetime.datetime.now()
-        self._hashseed = random.random()
-        self._progress = None
-        self._running = False
-
-    def update_progress(self, data: str):
-        self._progress = data
-
-    def is_running(self) -> bool:
-        return self._running
-
-    def request_abort(self) -> bool:
-        self._abort_handle.set()
-
-    async def run(self) -> bool:
-        self._running = True
-        await self.coroutine(self.update_progress, self._abort_handle)
-
-    def __hash__(self) -> int:
-        return hash(self._hashseed)
-
-    def format_hash(self) -> str:
-        h = hash(self) + sys.maxsize + 1
-        return f"{h:#0{10}x}"[2:10]
-
-    def __str__(self) -> str:
-        ret = f"[{self.format_hash()}] {self.priority} - {self.description}"
-        if self.is_running():
-            ret += f" [{self._progress}]"
-        return ret
-
-
-def handle_command(command: bytes, client_socket, queue: WorkList[WorkItem]):
+def handle_command(command: bytes, client_socket, queue: WorkList):
     f = io.StringIO()
 
     parser = argparse.ArgumentParser(prog="pyarchive")
@@ -93,10 +47,12 @@ def handle_command(command: bytes, client_socket, queue: WorkList[WorkItem]):
     # Synchronous commands
     subparsers.add_parser("queue")
     subparsers.add_parser("summary")
-    subparsers.add_parser("todo")
 
     parser_abort = subparsers.add_parser("abort")
     parser_abort.add_argument("task")
+
+    parser_abort = subparsers.add_parser("requeue")
+    parser_abort.add_argument("failedtask")
 
     # Asynchronous commands
     parser_prepare = subparsers.add_parser("prepare")
@@ -124,9 +80,6 @@ def handle_command(command: bytes, client_socket, queue: WorkList[WorkItem]):
     try:
         f = io.StringIO()
         with redirect_stderr(f):
-            print("COMMAND", command, type(command))
-            print(command.split(b"\00"))
-
             displ = [i.decode() for i in command.split(b"\00")]
             args = parser.parse_args(displ)
     except SystemExit:
@@ -135,175 +88,24 @@ def handle_command(command: bytes, client_socket, queue: WorkList[WorkItem]):
         return
 
     if args.command == "queue":
-        data = sorted(queue, key=lambda i: i.priority)  # Sort by priority
-        res = "\n".join(str(item) for i, item in enumerate(data))
-
-        client_socket.write(f"Queue state: {len(queue)} tasks\n{res}".encode())
+        handle_queue(client_socket, queue)
     elif args.command == "summary":
-        res = f"{Library().get_all_tapes()}"
-        res = res.encode()
-        client_socket.write(
-            f"{JsonDatabase().format(Library().get_all_tapes())}".encode()
-        )
-    elif args.command == "todo":
-        client_socket.write("TODO list:\n".encode())
+        handle_summary(client_socket, queue)
     elif args.command == "abort":
-        for task in queue:
-            if task.format_hash() == args.task:
-                if task.is_running():
-                    task.request_abort()
-                    client_socket.write(b"Task abort scheduled, cleaning up...")
-                else:
-                    queue.remove(task)
-                    client_socket.write(b"Task removed from queue")
-                return
-        client_socket.write(b"Task ID not found")
+        handle_abort(args, client_socket, queue)
+
+    elif args.command == "requeue":
+        handle_requeue(args, client_socket, queue)
     elif args.command == "prepare":
-        try:
-            os.stat(args.folder)
-            entry = JsonDatabase().create_entry(args.folder, args.description)
-        except (ValueError, FileNotFoundError, PermissionError) as e:
-            client_socket.write(f"Error: {e}".encode())
-            return
-
-        description = f"Preparing folder: {args.folder} - {args.description}"
-
-        queue.append(
-            WorkItem(
-                args.priority,
-                lambda progress, abort: tasks.get_size(entry, progress, abort),
-                description,
-            )
-        )
-        client_socket.write(b"Preparation queued")
+        handle_prepare(args, client_socket, queue)
     elif args.command == "archive":
-        description = f"Archiving folder: {args.folder} to tape {args.tapelabel}"
-        # Check that the free size on this tape is enough
-        try:
-            entry = JsonDatabase()._get_folder(args.folder)
-        except ValueError:
-            client_socket.write(
-                f"Folder not prepared yet. Run pyarchive prepare {args.folder} first.".encode()
-            )
-            return
-
-        if entry["state"] != "prepared":
-            client_socket.write(
-                "Folder is in the wrong state according to database. Maybe it's already archived?".encode()
-            )
-            return
-        size = entry["size"]
-        on_tape = sum(
-            e["size"] for e in JsonDatabase().get_directories_on_tape(args.tapelabel)
-        )
-        maxsize = ConfigReader().get_maxsize()
-        if maxsize < on_tape + size:
-            client_socket.write(
-                dedent(f"""
-                        There is most likely not enough space on that tape. 
-                            Required: {humanize.naturalsize(size * 1024, binary=True)}
-                            Available: {humanize.naturalsize((maxsize- on_tape) * 1024, binary=True)}.
-                        Please select a different tape.""").encode()
-            )
-            return
-        if Library().find_tape(args.tapelabel) is None:
-            client_socket.write(
-                f"Requested tape not found. Available tapes: {sorted(list(Library().get_available_tapes().values()))}".encode()
-            )
-            return
-        target_filename = args.targetname or JsonDatabase().suggest_ontape_name(entry)
-        print(target_filename)
-        if target_filename == "" or target_filename in [
-            e.get("path_on_tape")
-            for e in JsonDatabase().get_directories_on_tape(args.tapelabel)
-        ]:
-            client_socket.write(
-                f"Directory {target_filename} already exists on tape {args.tapelabel}, choose a different name".encode()
-            )
-            return
-
-        try:
-            os.stat(args.folder)
-        except (FileNotFoundError, PermissionError) as e:
-            client_socket.write(f"Error: {e}".encode())
-            return
-
-        JsonDatabase().set_archiving_queued(entry, args.tapelabel, target_filename)
-
-        queue.append(
-            WorkItem(
-                args.priority,
-                lambda progress, abort: tasks.archive(entry, progress, abort),
-                description,
-            )
-        )
-        client_socket.write(b"Archiving queued")
+        handle_archive(args, client_socket, queue)
     elif args.command == "restore":
-        try:
-            entry = JsonDatabase()._get_folder(args.folder)
-        except ValueError:
-            client_socket.write(
-                f"Folder not prepared yet. Run pyarchive prepare {args.folder} first.".encode()
-            )
-            return
-
-        if entry["state"] != "archived":
-            client_socket.write("Folder not archived yet.".encode())
-            return
-
-        description = f"Restoring folder: {args.folder} to {args.restore_path}"
-        restore_path = Path(args.restore_path)
-        # If the restore path exists, it needs to be empty.
-        if restore_path.is_dir():
-            if not len(list(restore_path.iterdir())) == 0:
-                client_socket.write("Directory to restore to is not empty".encode())
-                return
-            restore_path.rmdir()
-
-        subfolder: str = args.subfolder
-        if subfolder != "":
-            subfolder.removeprefix("/")
-            if not subfolder.endswith("/"):
-                subfolder = subfolder + "/"
-
-        queue.append(
-            WorkItem(
-                args.priority,
-                lambda progress, abort: tasks.restore(
-                    entry, args.restore_path, subfolder, progress, abort
-                ),
-                description,
-            )
-        )
-        client_socket.write(b"Restoring queued")
+        handle_restore(args, client_socket, queue)
     elif args.command == "explore":
-        description = f"Exploring tape: {args.tapelabel}"
-        if Library().find_tape(args.tapelabel) is None:
-            client_socket.write(
-                f"Requested tape not found. Available tapes: {sorted(list(Library().get_available_tapes().values()))}".encode()
-            )
-            return
-
-        queue.append(
-            WorkItem(
-                args.priority,
-                lambda progress, abort: tasks.explore(
-                    args.tapenumber, args.time, progress, abort
-                ),
-                description,
-            )
-        )
-        client_socket.write(b"Exploring queued")
+        handle_explore(args, client_socket, queue)
     else:
         client_socket.write(parser.format_help().encode())
-
-
-class WorkList(list):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def get_top(self) -> WorkItem:
-        return sorted(self, key=lambda i: i.priority)[0]
 
 
 def handle_signal(sig, frame):
@@ -329,25 +131,6 @@ class PyArchiveServer(asyncio.Protocol):
         handle_command(command, self.transport, self.queue)
 
 
-async def worker(queue: WorkList[WorkItem]):
-    while True:
-        if not len(queue):
-            await asyncio.sleep(1)
-            continue
-
-        item = queue.get_top()
-        description = item.description
-
-        logger.info(f"starting {description}")
-        try:
-            result = await item.run()
-            logger.info(f"{description} - Result: {result}\n")
-
-        except Exception as e:
-            logger.info(f"{description} - Error: {e} {traceback.format_exc()}\n")
-        queue.remove(item)
-
-
 async def main():
     if os.path.isfile(PID_FILE):
         logger.error("Service is already running.")
@@ -363,7 +146,7 @@ async def main():
     if os.path.exists(SOCKET_FILE):
         os.remove(SOCKET_FILE)
     queue = WorkList()
-    asyncio.create_task(worker(queue))
+    asyncio.create_task(queue.worker())
 
     server = await asyncio.get_event_loop().create_unix_server(
         lambda: PyArchiveServer(queue), SOCKET_FILE

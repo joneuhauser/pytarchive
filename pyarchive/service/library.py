@@ -4,7 +4,7 @@ import subprocess
 import re
 from pyarchive.service.config import ConfigReader
 from pyarchive.service.db import JsonDatabase
-from pyarchive.service.utils import run_command
+from pyarchive.service.command_runner import run_command
 from pyarchive.service.log import logger
 
 
