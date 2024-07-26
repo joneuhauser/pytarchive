@@ -176,6 +176,7 @@ class Library:
     async def ensure_tape_unmounted(self, progress):
         if self.is_mounted():
             await self._unmount_tape(progress)
+            await asyncio.sleep(5)
 
     async def ensure_tape_unloaded(self, progress, cancel_event: asyncio.Event):
         if not self.drive_empty():

@@ -14,7 +14,7 @@ async def run_command(
     stdin=None,
     **kwargs,
 ):
-    logger.debug(command, *args)
+    logger.info(command, *args)
     process = await asyncio.create_subprocess_exec(
         command,
         *args,
