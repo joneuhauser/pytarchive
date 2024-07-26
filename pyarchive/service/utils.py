@@ -65,11 +65,17 @@ async def run_command(
     for pend in list(pending):
         pend.cancel()
 
+    stdout = "\n".join(stdout_res)
+    stderr = "\n".join(stderr_res)
+
     exit_code = await process.wait()
     if abort_event is not None and abort_event.is_set():
         logger.info("Process aborted")
-        return
-    if exit_code != 0:
+    elif exit_code != 0:
         raise subprocess.CalledProcessError(
-            exit_code, command, "\n".join(stdout_res), "\n".join(stderr_res)
+            exit_code,
+            command,
+            stdout,
+            stderr,
         )
+    return stdout, stderr

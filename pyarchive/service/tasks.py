@@ -5,27 +5,29 @@ from pyarchive.service.library import Library
 from pyarchive.service.utils import run_command
 
 
-async def get_size(folder: str, description: str):
-    entry = JsonDatabase().create_entry(folder, description)
-    process = await asyncio.create_subprocess_exec(
+async def get_size(entry, progress, abort: asyncio.Event):
+    assert entry in JsonDatabase().data
+    progress(f"Querying size of folder {entry['original_directory']}")
+
+    stdout, _ = await run_command(
         "du",
         "-s",
-        entry["original_path"],
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        entry["original_directory"],
+        abort_event=abort,
+        preserve_stderr=True,
+        preserve_stdout=True,
     )
-    stdout, stderr = await process.communicate()
 
-    if process.returncode != 0:
-        raise ChildProcessError(stderr.decode())
+    if abort.is_set():
+        JsonDatabase().data.remove(entry)
+        return
 
-    size = int(stdout.decode().split()[0])
+    size = int(stdout.split()[0])
+    print(size)
+
+    assert entry in JsonDatabase().data
 
     JsonDatabase().set_prepared(entry, size)
-
-
-async def load_and_mount(tape_id):
-    Library().load_tape(tape_id)
 
 
 async def archive(

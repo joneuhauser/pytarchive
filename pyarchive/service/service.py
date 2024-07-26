@@ -9,9 +9,12 @@ import os
 import random
 import sys
 import fcntl
+import humanize
 import signal
+from textwrap import dedent
 import traceback
 from typing import Coroutine, Optional
+from pyarchive.service.config import ConfigReader
 from pyarchive.service.db import JsonDatabase
 from pyarchive.service.library import Library
 import pyarchive.service.tasks as tasks
@@ -80,7 +83,7 @@ class WorkItem:
         return ret
 
 
-def handle_command(command, client_socket, queue: WorkList[WorkItem]):
+def handle_command(command: bytes, client_socket, queue: WorkList[WorkItem]):
     f = io.StringIO()
 
     parser = argparse.ArgumentParser(prog="pyarchive")
@@ -118,7 +121,11 @@ def handle_command(command, client_socket, queue: WorkList[WorkItem]):
     try:
         f = io.StringIO()
         with redirect_stderr(f):
-            args = parser.parse_args(command.split())
+            print("COMMAND", command, type(command))
+            print(command.split(b"\00"))
+
+            displ = [i.decode() for i in command.split(b"\00")]
+            args = parser.parse_args(displ)
     except SystemExit:
         s = f.getvalue()
         client_socket.write(s.encode())
@@ -149,16 +156,41 @@ def handle_command(command, client_socket, queue: WorkList[WorkItem]):
                 return
         client_socket.write(b"Task ID not found")
     elif args.command == "prepare":
+        try:
+            os.stat(args.folder)
+            entry = JsonDatabase().create_entry(args.folder, args.description)
+        except (ValueError, FileNotFoundError, PermissionError) as e:
+            client_socket.write(f"Error: {e}".encode())
+            return
+
         description = f"Preparing folder: {args.folder} - {args.description}"
+
         queue.append(
-            [
+            WorkItem(
                 args.priority,
-                lambda progress: tasks.get_size(args.folder, progress),
+                lambda progress, abort: tasks.get_size(entry, progress, abort),
                 description,
-            ]
+            )
         )
+        client_socket.write(b"Preparation queued")
     elif args.command == "archive":
         description = f"Archiving folder: {args.folder} to tape {args.tapenumber}"
+        # Check that the free size on this tape is enough
+        entry = JsonDatabase()._get_folder(args.folder)
+        size = entry["size"] * 1024
+        on_tape = sum(
+            e["size"] for e in JsonDatabase().get_directories_on_tape(args.tapenumber)
+        )
+        maxsize = ConfigReader().get_maxsize()
+        if maxsize < on_tape + size:
+            client_socket.write(
+                dedent(f"""
+                                        There is most likely not enough space on that tape. 
+                                        Required: {humanize.naturalsize(size * 1024, binary=True)}
+                                        Available: {humanize.naturalsize((maxsize- on_tape) * 1024, binary=True)}.
+                                        Please select a different tape""").encode()
+            )
+
         queue.append(
             WorkItem(
                 args.priority,
@@ -174,7 +206,7 @@ def handle_command(command, client_socket, queue: WorkList[WorkItem]):
         queue.append(
             [
                 args.priority,
-                lambda progress: tasks.restore(
+                lambda progress, abort: tasks.restore(
                     args.folder, args.restore_path, progress
                 ),
                 description,
@@ -211,17 +243,6 @@ class WorkList(list):
         return sorted(self, key=lambda i: i.priority)[0]
 
 
-def handle_client(client_socket, queue):
-    with client_socket:
-        command = recv_all(client_socket).decode()
-        if command:
-            logger.info(f"Received command: {command}")
-            try:
-                handle_command(command, client_socket, queue)
-            except Exception as e:
-                client_socket.sendall(f"Error: {e}\n{traceback.format_exc()}".encode())
-
-
 def handle_signal(sig, frame):
     """Handle termination signals to gracefully shutdown the service."""
     logger.info("Shutting down service")
@@ -239,8 +260,9 @@ class PyArchiveServer(asyncio.Protocol):
         self.addr = transport.get_extra_info("peername")
 
     def data_received(self, data):
-        command = data.decode().strip()
-        logger.info(f"Received command: {command}")
+        command = data.strip()
+        displ = [i.decode() for i in command.split(b"\00")]
+        logger.info(f"Received command: {displ}")
         handle_command(command, self.transport, self.queue)
 
 

@@ -5,14 +5,14 @@ import socket
 SOCKET_FILE = "/tmp/pyarchive_service.sock"
 
 
-def send_command(command):
+def send_command(command: bytes) -> str:
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client_socket:
         try:
             client_socket.connect(SOCKET_FILE)
         except PermissionError:
             print("You need to be root to run this script.")
             exit()
-        client_socket.sendall(command.encode())
+        client_socket.sendall(command)
         response = recv_all(client_socket)
         print(response.decode())
 
@@ -33,7 +33,7 @@ def main():
         print("Usage: pyarchive <command> [<args>]")
         sys.exit(1)
 
-    command = " ".join(sys.argv[1:])
+    command = b"\0".join(i.encode() for i in sys.argv[1:])
     send_command(command)
 
 

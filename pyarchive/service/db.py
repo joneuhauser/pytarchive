@@ -6,8 +6,10 @@ from typing import List, Dict, Any
 import humanize
 
 from pyarchive.service.config import ConfigReader
+from pyarchive.service.utils import singleton
 
 
+@singleton
 class JsonDatabase:
     def __init__(self):
         self.json_file = "/var/lib/pyarchive/database.json"
@@ -40,7 +42,7 @@ class JsonDatabase:
             folder["original_directory"] == original_directory for folder in self.data
         ):
             raise ValueError(
-                f"Folder with original_directory '{original_directory}' already exists."
+                f"Folder with original_directory '{original_directory}' already exists in database."
             )
 
         new_entry = {
