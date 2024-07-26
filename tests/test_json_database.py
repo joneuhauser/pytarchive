@@ -2,15 +2,15 @@ import re
 from textwrap import dedent
 import pytest
 from pyfakefs.fake_filesystem_unittest import Patcher
-from pyarchive.service.db import JsonDatabase
+from pytarchive.service.db import JsonDatabase
 
 
 @pytest.fixture
 def setup_db():
     with Patcher() as patcher:
-        patcher.fs.create_file("/var/lib/pyarchive/database.json", contents="[]")
+        patcher.fs.create_file("/var/lib/pytarchive/database.json", contents="[]")
         patcher.fs.create_file(
-            "/etc/pyarchive.conf",
+            "/etc/pytarchive.conf",
             contents="[Device]\nlibrary = /dev/sch0 \ndrive_serial=10WT017752\n[General]\ntape_max_size=17000000000",
         )
         db = JsonDatabase()

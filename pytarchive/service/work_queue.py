@@ -8,9 +8,9 @@ from textwrap import indent
 import traceback
 from typing import Coroutine, Dict, Iterable, List, Optional, Any
 
-from pyarchive.service import tasks
-from pyarchive.service.utils import singleton
-from pyarchive.service.log import logger
+from pytarchive.service import tasks
+from pytarchive.service.utils import singleton
+from pytarchive.service.log import logger
 
 
 @dataclass
@@ -73,7 +73,7 @@ class WorkItem:
 class WorkList(List[WorkItem]):
     def __init__(self):
         self.callback = lambda: None
-        self.json_file = "/var/lib/pyarchive/queue.json"
+        self.json_file = "/var/lib/pytarchive/queue.json"
         for entry in self._read_json():
             wi = WorkItem(
                 entry["priority"],

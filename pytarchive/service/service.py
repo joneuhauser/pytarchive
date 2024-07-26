@@ -7,7 +7,7 @@ import os
 import sys
 import fcntl
 import signal
-from pyarchive.service.handlers import (
+from pytarchive.service.handlers import (
     handle_abort,
     handle_archive,
     handle_explore,
@@ -17,12 +17,12 @@ from pyarchive.service.handlers import (
     handle_restore,
     handle_summary,
 )
-from pyarchive.service.log import logger
-from pyarchive.service.work_queue import WorkList
+from pytarchive.service.log import logger
+from pytarchive.service.work_queue import WorkList
 
 # Configuration
-PID_FILE = "/tmp/pyarchive_service.pid"
-SOCKET_FILE = "/tmp/pyarchive_service.sock"
+PID_FILE = "/tmp/pytarchive_service.pid"
+SOCKET_FILE = "/tmp/pytarchive_service.sock"
 DEFAULT_PRIORITY = 100
 EXPLORE_PRIORITY = 20
 
@@ -41,7 +41,7 @@ def recv_all(sock):
 def handle_command(command: bytes, client_socket, queue: WorkList):
     f = io.StringIO()
 
-    parser = argparse.ArgumentParser(prog="pyarchive")
+    parser = argparse.ArgumentParser(prog="pytarchive")
     subparsers = parser.add_subparsers(dest="command")
 
     # Synchronous commands
@@ -116,7 +116,7 @@ def handle_signal(sig, frame):
     sys.exit(0)
 
 
-class PyArchiveServer(asyncio.Protocol):
+class pytarchiveServer(asyncio.Protocol):
     def __init__(self, queue):
         self.queue = queue
 
@@ -149,7 +149,7 @@ async def main():
     asyncio.create_task(queue.worker())
 
     server = await asyncio.get_event_loop().create_unix_server(
-        lambda: PyArchiveServer(queue), SOCKET_FILE
+        lambda: pytarchiveServer(queue), SOCKET_FILE
     )
     logger.info(f"Service started, waiting for commands on {SOCKET_FILE}")
 

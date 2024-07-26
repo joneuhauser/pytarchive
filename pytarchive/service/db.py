@@ -6,14 +6,14 @@ from typing import List, Dict, Any
 
 import humanize
 
-from pyarchive.service.config import ConfigReader
-from pyarchive.service.utils import singleton
+from pytarchive.service.config import ConfigReader
+from pytarchive.service.utils import singleton
 
 
 @singleton
 class JsonDatabase:
     def __init__(self):
-        self.json_file = "/var/lib/pyarchive/database.json"
+        self.json_file = "/var/lib/pytarchive/database.json"
         self.data = self._read_json()
 
     def _read_json(self) -> List[Dict[str, Any]]:

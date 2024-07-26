@@ -3,10 +3,10 @@ import os
 from pathlib import Path
 import humanize
 from textwrap import dedent
-from pyarchive.service.config import ConfigReader
-from pyarchive.service.db import JsonDatabase
-from pyarchive.service.library import Library
-from pyarchive.service.work_queue import WorkItem, WorkList
+from pytarchive.service.config import ConfigReader
+from pytarchive.service.db import JsonDatabase
+from pytarchive.service.library import Library
+from pytarchive.service.work_queue import WorkItem, WorkList
 
 
 def handle_queue(client_socket, queue: WorkList):
@@ -87,7 +87,7 @@ def handle_archive(args, client_socket, queue: WorkList):
         entry = JsonDatabase()._get_folder(args.folder)
     except ValueError:
         client_socket.write(
-            f"Folder not prepared yet. Run pyarchive prepare {args.folder} first.".encode()
+            f"Folder not prepared yet. Run pytarchive prepare {args.folder} first.".encode()
         )
         return
 
@@ -150,7 +150,7 @@ def handle_restore(args, client_socket, queue: WorkList):
         entry = JsonDatabase()._get_folder(args.folder)
     except ValueError:
         client_socket.write(
-            f"Folder not prepared yet. Run pyarchive prepare {args.folder} first.".encode()
+            f"Folder not prepared yet. Run pytarchive prepare {args.folder} first.".encode()
         )
         return
 

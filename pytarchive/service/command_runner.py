@@ -1,7 +1,7 @@
 import asyncio
 import subprocess
 from typing import Optional
-from pyarchive.service.log import logger
+from pytarchive.service.log import logger
 
 
 async def run_command(

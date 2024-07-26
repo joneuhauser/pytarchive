@@ -1,5 +1,5 @@
 from unittest.mock import patch, Mock
-from pyarchive.service.library import Library
+from pytarchive.service.library import Library
 from pyfakefs.fake_filesystem_unittest import Patcher
 
 state_full = """ Storage Changer /dev/sch0:1 Drives, 24 Slots ( 0 Import/Export )
@@ -121,11 +121,11 @@ eb340 LTFS30252I Logical block protection is disabled.
 """
 
 
-@patch("pyarchive.service.library.subprocess.run")
+@patch("pytarchive.service.library.subprocess.run")
 def test_run_command_success(mock_run):
     with Patcher() as patcher:
         patcher.fs.create_file(
-            "/etc/pyarchive.conf",
+            "/etc/pytarchive.conf",
             contents="[Device]\nlibrary = /dev/sch0 \ndrive_serial=10WT017752",
         )
 
@@ -144,11 +144,11 @@ def test_run_command_success(mock_run):
         assert library.find_tape("CLN670L1") == 2
 
 
-@patch("pyarchive.service.library.subprocess.run")
+@patch("pytarchive.service.library.subprocess.run")
 def test_load_unload(mock_run):
     with Patcher() as patcher:
         patcher.fs.create_file(
-            "/etc/pyarchive.conf",
+            "/etc/pytarchive.conf",
             contents="[Device]\nlibrary = /dev/sch0 \ndrive_serial=10WT017752",
         )
 

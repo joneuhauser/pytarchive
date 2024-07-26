@@ -1,10 +1,10 @@
 import configparser
-from pyarchive.service.utils import singleton
+from pytarchive.service.utils import singleton
 
 
 @singleton
 class ConfigReader:
-    def __init__(self, config_path="/etc/pyarchive.conf"):
+    def __init__(self, config_path="/etc/pytarchive/pytarchive.conf"):
         self.config_path = config_path
         self.config = configparser.ConfigParser()
         self.read_config()
@@ -36,6 +36,3 @@ class ConfigReader:
     def get_exclude_folders(self):
         entry = self.get("General", "exclude_folders")
         return [e.strip() for e in entry.split(",")]
-
-    def get_logging_config(self):
-        return self.get("General", "logconfig")

@@ -2,7 +2,7 @@ import sys
 import socket
 
 # Configuration
-SOCKET_FILE = "/tmp/pyarchive_service.sock"
+SOCKET_FILE = "/tmp/pytarchive_service.sock"
 
 
 def send_command(command: bytes) -> str:
@@ -30,7 +30,7 @@ def recv_all(sock):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: pyarchive <command> [<args>]")
+        print("Usage: pytarchive <command> [<args>]")
         sys.exit(1)
 
     command = b"\0".join(i.encode() for i in sys.argv[1:])

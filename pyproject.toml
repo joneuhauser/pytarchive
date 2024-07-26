@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "pyarchive"
+name = "pytarchive"
 version = "0.1.0"
 description = "Service/client application to interface with a tape library"
 authors = ["Jonathan Neuhauser <jonathan.neuhauser@kit.edu>"]
@@ -9,8 +9,6 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 humanize = "^4.10.0"
-systemd-python = "^235"
-aioshutil = "^1.4"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"

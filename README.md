@@ -1,1 +1,1 @@
-# pyarchive - a taple library archiving solution
+# pytarchive - a simple taple library archiving solution

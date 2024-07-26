@@ -1,4 +1,4 @@
-from pyarchive.service.db import JsonDatabase
+from pytarchive.service.db import JsonDatabase
 
 
 db = JsonDatabase()

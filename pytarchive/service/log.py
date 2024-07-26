@@ -1,11 +1,11 @@
 from logging.config import fileConfig
 import logging.handlers
-from pyarchive.service.config import ConfigReader
+from pathlib import Path
 
-conf = ConfigReader().get_logging_config()
 
-if conf is not None:
-    fileConfig(conf)
+config = "/etc/pytarchive/logging.conf"
+if Path(config).is_file():
+    fileConfig(config)
     logger = logging.getLogger()
 else:
     print("No log config file")
@@ -13,7 +13,7 @@ else:
     logger.setLevel(logging.INFO)
 
     smtp_handler = logging.handlers.RotatingFileHandler(
-        filename="/var/log/pyarchive.log", backupCount=3, maxBytes=100000
+        filename="/var/log/pytarchive.log", backupCount=3, maxBytes=100000
     )
     logger.addHandler(smtp_handler)
     smtp_handler.setLevel(logging.INFO)

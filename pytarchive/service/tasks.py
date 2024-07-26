@@ -5,10 +5,10 @@ import shutil
 from typing import List, Optional
 
 import humanize
-from pyarchive.service.config import ConfigReader
-from pyarchive.service.db import JsonDatabase
-from pyarchive.service.library import Library
-from pyarchive.service.command_runner import run_command
+from pytarchive.service.config import ConfigReader
+from pytarchive.service.db import JsonDatabase
+from pytarchive.service.library import Library
+from pytarchive.service.command_runner import run_command
 
 
 async def get_size(folder: str, progress, abort: asyncio.Event):
