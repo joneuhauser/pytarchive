@@ -12,10 +12,12 @@ class Library:
     def _get_status(self):
         try:
             result = subprocess.run(
-                ["mtx", "-d", ConfigReader().get_library_path(), "status"],
+                ["mtx", "-f", ConfigReader().get_library_path(), "status"],
                 capture_output=True,
                 text=True,
             )
+            if result.stdout.strip() == "":
+                raise RuntimeError(f"Failed to get status from mtx: {result.stderr}")
             return result.stdout
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Failed to get status from mtx: {e}")
@@ -104,7 +106,7 @@ class Library:
 
         slot_id = self.find_tape(volume_tag)
         progress(f"Loading tape from slot {slot_id}...")
-        await run_command("mtx", "-d", device, "load", str(slot_id))
+        await run_command("mtx", "-f", device, "load", str(slot_id))
         progress(f"Tape loaded from slot {slot_id}")
 
     async def _mount_tape(self, progress):
@@ -134,13 +136,17 @@ class Library:
 
     async def _unload(self, progress):
         target = self.get_empty_slots()[0]
-        device = ConfigReader().get_drive_serial()
+        device = ConfigReader().get_library_path()
         progress("Unloading tape...")
-        await run_command(["mtx", "-d", device, "unload", str(target)])
+        await run_command("mtx", "-f", device, "unload", str(target))
         progress(f"Tape unloaded into slot {target}")
 
-    async def is_mounted(self):
-        return os.path.ismount("/ltfs")
+    def is_mounted(self):
+        with open("/proc/mounts", "r") as f:
+            for line in f.readlines():
+                if line.split()[1] == "/ltfs":
+                    return True
+            return False
 
     def check_tape_consistency(self):
         status = self.get_status()
@@ -149,21 +155,23 @@ class Library:
         should_be_on_tape = sorted(
             [i["path_on_tape"] for i in on_tape if i["state"] == "archived"]
         )
-        if any(i.contains("/") for i in should_be_on_tape):
+        if any("/" in i for i in should_be_on_tape):
             raise NotImplementedError("Subpath folders need extra work")
         assert self.is_mounted()
 
-        on_tape = sorted([name for name in os.listdir("/ltfs") if os.path.isdir(name)])
+        on_tape = sorted([name for name in os.listdir("/ltfs")])
 
         if on_tape != should_be_on_tape:
             logger.error(
-                r"""Tape consistency check on %s failed. 
+                """Tape consistency check on %s failed. 
                 Expected contents:\n%s, 
                 Actual contents:\n%s.""",
                 tape_barcode,
                 "\n".join(should_be_on_tape),
                 "\n".join(on_tape),
             )
+        else:
+            logger.info("Tape consistency check on %s successful.", tape_barcode)
 
     async def ensure_tape_unmounted(self, progress):
         if self.is_mounted():
@@ -172,22 +180,24 @@ class Library:
     async def ensure_tape_unloaded(self, progress, cancel_event: asyncio.Event):
         if not self.drive_empty():
             await self.ensure_tape_unmounted(progress)
-            if cancel_event.set():
+            if cancel_event.is_set():
                 return
             await self._unload(progress)
 
     async def ensure_tape_loaded(
         self, tape_barcode, progress, cancel_event: asyncio.Event
     ):
+        if tape_barcode.startswith("CLN"):
+            raise ValueError("Can't load cleaning tape!")
         # Maybe we already have the correct tape loaded?
         status = self.get_status()
         if not self.drive_empty():
             if status[0]["volume_tag"] == tape_barcode:
-                # This is the correct tape. Great, we're done
+                logger.info("Tape already loaded")
                 return
             await self.ensure_tape_unloaded(progress, cancel_event)
 
-        if cancel_event.set():
+        if cancel_event.is_set():
             return
         assert self.drive_empty()
 
@@ -200,13 +210,14 @@ class Library:
         if not self.drive_empty():
             if status[0]["volume_tag"] == tape_barcode and self.is_mounted():
                 # The correct tape is mounted
+                logger.info("Tape already mounted")
                 self.check_tape_consistency()
                 return
 
         # Make sure the tape is loaded
         await self.ensure_tape_loaded(tape_barcode, progress, cancel_event)
 
-        if cancel_event.set():
+        if cancel_event.is_set():
             return
 
         # Now we check if we expect a filesystem on this tape
@@ -221,7 +232,7 @@ class Library:
                 if "LTFS15047E Medium is already formatted" not in e.stderr:
                     raise e
 
-        if cancel_event.set():
+        if cancel_event.is_set():
             return
 
         await self._mount_tape(progress)

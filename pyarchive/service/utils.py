@@ -29,35 +29,47 @@ async def run_command(
     )
 
     # Function to log output in real time
-    async def log_output(stream, log_method, preserve=False):
-        res = []
+    async def log_output(stream, log_method, preserve=False, result=None):
         while True:
             line = await stream.readline()
             if line:
                 dec = line.decode().strip()
-                log_method(dec)
                 stdout_callback(dec)
-                if preserve:  # to avoid memory overruns
-                    res.append(dec)
+                # to avoid memory overruns, and to access the result even if canceled
+                if preserve:
+                    result.append(dec)
+                    log_method(dec)
             else:
                 break
-        return "\n".join(res)
 
     async def monitor_abort():
         while True:
             if abort_event is not None and abort_event.is_set():
-                logger.info(f"Aborting process: {args}")
+                logger.info(f"Aborting process: {command} {args}")
                 process.terminate()
                 return
             await asyncio.sleep(0.1)
 
-    # Log both stdout and stderr
-    stdout, stderr, _ = await asyncio.gather(
-        log_output(process.stdout, logger.info, preserve_stdout),
-        log_output(process.stderr, logger.error, preserve_stderr),
-        monitor_abort(),
+    stdout_res = []
+    stderr_res = []
+
+    # Log both stdout and stderr, and await cancellation. Wait until one of those tasks is finished.
+    done, pending = await asyncio.wait(
+        [
+            log_output(process.stdout, logger.info, preserve_stdout, stdout_res),
+            log_output(process.stderr, logger.error, preserve_stderr, stderr_res),
+            monitor_abort(),
+        ],
+        return_when=asyncio.FIRST_COMPLETED,
     )
+    for pend in list(pending):
+        pend.cancel()
 
     exit_code = await process.wait()
+    if abort_event is not None and abort_event.is_set():
+        logger.info("Process aborted")
+        return
     if exit_code != 0:
-        raise subprocess.CalledProcessError(exit_code, command, stdout, stderr)
+        raise subprocess.CalledProcessError(
+            exit_code, command, "\n".join(stdout_res), "\n".join(stderr_res)
+        )

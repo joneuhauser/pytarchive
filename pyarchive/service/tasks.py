@@ -46,8 +46,19 @@ async def restore(folder, restore_path):
     return f"Restored {folder} to {restore_path}"
 
 
-async def explore(
-    tape_label, progress_callback, abort_event: Optional[asyncio.Event] = None
-):
-    await asyncio.sleep(50)
+async def explore(tape_label, time: int, progress_callback, abort_event: asyncio.Event):
+    await Library().ensure_tape_mounted(tape_label, progress_callback, abort_event)
+
+    start_time = asyncio.get_event_loop().time()
+    print(start_time, time)
+    while asyncio.get_event_loop().time() < start_time + time:
+        progress_callback(
+            f"{int(asyncio.get_event_loop().time() - start_time)}s / {time}s"
+        )
+        await asyncio.sleep(1)
+        if abort_event.is_set():
+            break
+
+    await Library().ensure_tape_unmounted(progress_callback)
+
     return f"Explored tape {tape_label}"

@@ -102,7 +102,7 @@ def handle_command(command, client_socket, queue: WorkList[WorkItem]):
 
     parser_archive = subparsers.add_parser("archive")
     parser_archive.add_argument("folder")
-    parser_archive.add_argument("tapenumber")
+    parser_archive.add_argument("tapelabel")
     parser_archive.add_argument("--priority", type=int, default=DEFAULT_PRIORITY)
 
     parser_restore = subparsers.add_parser("restore")
@@ -111,7 +111,8 @@ def handle_command(command, client_socket, queue: WorkList[WorkItem]):
     parser_restore.add_argument("--priority", type=int, default=DEFAULT_PRIORITY)
 
     parser_explore = subparsers.add_parser("explore")
-    parser_explore.add_argument("tapenumber")
+    parser_explore.add_argument("tapelabel")
+    parser_explore.add_argument("-t", "--time", type=int, default=600)
     parser_explore.add_argument("--priority", type=int, default=EXPLORE_PRIORITY)
 
     try:
@@ -145,7 +146,7 @@ def handle_command(command, client_socket, queue: WorkList[WorkItem]):
                 else:
                     queue.remove(task)
                     client_socket.write(b"Task removed from queue")
-                break
+                return
         client_socket.write(b"Task ID not found")
     elif args.command == "prepare":
         description = f"Preparing folder: {args.folder} - {args.description}"
@@ -181,13 +182,21 @@ def handle_command(command, client_socket, queue: WorkList[WorkItem]):
         )
         client_socket.write(b"Restoring queued")
     elif args.command == "explore":
-        description = f"Exploring tape: {args.tapenumber}"
+        description = f"Exploring tape: {args.tapelabel}"
+        if Library().find_tape(args.tapelabel) is None:
+            client_socket.write(
+                f"Requested tape not found. Available tapes: {sorted(list(Library().get_available_tapes().values()))}".encode()
+            )
+            return
+
         queue.append(
-            [
+            WorkItem(
                 args.priority,
-                lambda progress: tasks.explore(args.tapenumber, progress),
+                lambda progress, abort: tasks.explore(
+                    args.tapenumber, args.time, progress, abort
+                ),
                 description,
-            ]
+            )
         )
         client_socket.write(b"Exploring queued")
     else:

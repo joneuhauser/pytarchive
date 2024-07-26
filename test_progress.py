@@ -8,9 +8,10 @@ def copy_file(src, dest):
 
 
 def copy_files_with_progress():
-    for i in range(100):
+    n = 20
+    for i in range(n):
         time.sleep(1)
-        print(f"file {i} / {100} copied")
+        print(f"file {i} / {n} copied")
         sys.stdout.flush()
 
 
