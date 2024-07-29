@@ -77,12 +77,13 @@ async def check_folders_equal(
     filesizes_on_tape = sorted(filesizes_on_tape.splitlines())
 
     if filesizes == filesizes_on_tape:
-        return
+        return True
     else:
         with open("/tmp/source.txt", "w") as f:
             f.write("\n".join(filesizes))
         with open("/tmp/target.txt", "w") as f:
             f.write("\n".join(filesizes_on_tape))
+        return False
 
 
 async def archive(
