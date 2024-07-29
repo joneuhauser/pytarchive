@@ -8,6 +8,7 @@ from pytarchive.service.config import ConfigReader
 from pytarchive.service.db import JsonDatabase
 from pytarchive.service.library import Library
 from pytarchive.service.command_runner import run_command
+from pytarchive.service.log import logger
 
 
 async def get_size(folder: str, progress, abort: asyncio.Event):
@@ -53,8 +54,8 @@ async def check_folders_equal(
         "%p %s\n",
         preserve_stderr=True,
         preserve_stdout=True,
-        log_stderr=True,
-        log_stdout=False,
+        log_stderr=logger.error,
+        log_stdout=lambda _: None,
         cwd=path1,
     )
 
@@ -67,8 +68,8 @@ async def check_folders_equal(
         "%p %s\n",
         preserve_stderr=True,
         preserve_stdout=True,
-        log_stderr=True,
-        log_stdout=False,
+        log_stderr=logger.error,
+        log_stdout=lambda _: None,
         cwd=path2,
     )
 
@@ -132,8 +133,8 @@ async def archive(
         "f",
         preserve_stderr=True,
         preserve_stdout=True,
-        log_stderr=True,
-        log_stdout=False,
+        log_stderr=logger.error,
+        log_stdout=lambda _: None,
         abort_event=abort_event,
         cwd=entry["original_directory"],
     )
@@ -155,15 +156,15 @@ async def archive(
         path,
         "--keep-tree=.",
         stdin=files,
-        log_stderr=True,
-        log_stdout=False,
+        log_stderr=logger.error,
+        log_stdout=lambda _: None,
         stdout_callback=lambda str: progress_callback(f"Copying: {str}"),
         abort_event=abort_event,
         cwd=entry["original_directory"],
     )
 
     with open("/tmp/orderedcopy.txt", "w") as f:
-        f.write(files)
+        f.write(stdout)
 
     if abort_event.is_set():
         # Afterwards, we don't allow to abort, we're practically done anyway.
