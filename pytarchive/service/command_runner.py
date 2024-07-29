@@ -77,10 +77,13 @@ async def run_command(
 
     exit_code = await process.wait()
 
-    write_task.cancel()
-    stdout_task.cancel()
-    stderr_task.cancel()
-    abort_task.cancel()
+    try:
+        stdout_task.cancel()
+        stderr_task.cancel()
+        abort_task.cancel()
+        write_task.cancel()
+    except:  # noqa
+        pass
 
     if abort_event is not None and abort_event.is_set():
         logger.info("Process aborted")
