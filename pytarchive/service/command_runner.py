@@ -72,10 +72,10 @@ async def run_command(
         )
     abort_task = asyncio.create_task(monitor_abort())
 
+    exit_code = await process.wait()
+
     stdout = "\n".join(stdout_res)
     stderr = "\n".join(stderr_res)
-
-    exit_code = await process.wait()
 
     try:
         stdout_task.cancel()
@@ -87,7 +87,6 @@ async def run_command(
 
     if abort_event is not None and abort_event.is_set():
         logger.info("Process aborted")
-    elif exit_code != 0:
         raise subprocess.CalledProcessError(
             exit_code,
             command,
