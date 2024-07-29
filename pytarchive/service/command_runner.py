@@ -11,6 +11,8 @@ async def run_command(
     abort_event: Optional[asyncio.Event] = None,
     preserve_stdout=False,
     preserve_stderr=True,
+    log_stdout=logger.info,
+    log_stderr=logger.error,
     stdin=None,
     **kwargs,
 ):
@@ -24,15 +26,10 @@ async def run_command(
         **kwargs,
     )
 
-    if stdin is not None:
-        stdin = stdin.encode()
-        process.stdin.write(stdin)
-        await process.stdin.drain()
-        process.stdin.close()
-
     # Function to log output in real time
     async def log_output(stream, log_method, preserve=False, result=None):
         while True:
+            await asyncio.sleep(0)
             line = await stream.readline()
             if line:
                 dec = line.decode().strip()
@@ -52,25 +49,39 @@ async def run_command(
                 return
             await asyncio.sleep(0.1)
 
+    async def write_stdin(pipe, stdin, log):
+        pipe.write(stdin)
+        log(f"Wrote {len(stdin)} bytes to stdin")
+        await pipe.drain()
+        log("Stdin drained")
+        pipe.close()
+        log("Stdin closed")
+
     stdout_res = []
     stderr_res = []
 
-    # Log both stdout and stderr, and await cancellation. Wait until one of those tasks is finished.
-    done, pending = await asyncio.wait(
-        [
-            log_output(process.stdout, logger.info, preserve_stdout, stdout_res),
-            log_output(process.stderr, logger.error, preserve_stderr, stderr_res),
-            monitor_abort(),
-        ],
-        return_when=asyncio.FIRST_COMPLETED,
+    stdout_task = asyncio.create_task(
+        log_output(process.stdout, log_stdout, preserve_stdout, stdout_res)
     )
-    for pend in list(pending):
-        pend.cancel()
+    stderr_task = asyncio.create_task(
+        log_output(process.stderr, log_stderr, preserve_stderr, stderr_res)
+    )
+    if stdin is not None and len(stdin) != 0:
+        write_task = asyncio.create_task(
+            write_stdin(process.stdin, stdin.encode(), logger.info)
+        )
+    abort_task = asyncio.create_task(monitor_abort())
 
     stdout = "\n".join(stdout_res)
     stderr = "\n".join(stderr_res)
 
     exit_code = await process.wait()
+
+    write_task.cancel()
+    stdout_task.cancel()
+    stderr_task.cancel()
+    abort_task.cancel()
+
     if abort_event is not None and abort_event.is_set():
         logger.info("Process aborted")
     elif exit_code != 0:

@@ -54,6 +54,8 @@ async def check_folders_equal(
         "%p %s\n",
         preserve_stderr=True,
         preserve_stdout=True,
+        log_stderr=True,
+        log_stdout=False,
         cwd=path1,
     )
 
@@ -66,13 +68,21 @@ async def check_folders_equal(
         "%p %s\n",
         preserve_stderr=True,
         preserve_stdout=True,
+        log_stderr=True,
+        log_stdout=False,
         cwd=path2,
     )
 
     filesizes = sorted(filesizes.splitlines())
     filesizes_on_tape = sorted(filesizes_on_tape.splitlines())
 
-    return filesizes == filesizes_on_tape
+    if filesizes == filesizes_on_tape:
+        return
+    else:
+        with open("/tmp/source.txt", "w") as f:
+            f.write("\n".join(filesizes))
+        with open("/tmp/target.txt", "w") as f:
+            f.write("\n".join(filesizes_on_tape))
 
 
 async def archive(
@@ -114,6 +124,8 @@ async def archive(
         (["-not", "-path", f"./{i}/*"] for i in ConfigReader().get_exclude_folders()),
         [],
     )
+
+    progress_callback("Assembling a list of files...")
     files, _ = await run_command(
         "find",
         *excludes,
@@ -121,6 +133,8 @@ async def archive(
         "f",
         preserve_stderr=True,
         preserve_stdout=True,
+        log_stderr=True,
+        log_stdout=False,
         abort_event=abort_event,
         cwd=entry["original_directory"],
     )
@@ -128,6 +142,8 @@ async def archive(
     if abort_event.is_set():
         os.rmdir(path)
         return
+
+    progress_callback("Ordering the files for writing to tape...")
 
     # Copy
     await run_command(
@@ -137,6 +153,8 @@ async def archive(
         path,
         "--keep-tree=.",
         stdin=files,
+        log_stderr=True,
+        log_stdout=False,
         stdout_callback=lambda str: progress_callback(f"Copying: {str}"),
         abort_event=abort_event,
         cwd=entry["original_directory"],
@@ -147,11 +165,15 @@ async def archive(
         os.rmdir(path)
         return
 
+    progress_callback("Checking that the folders are equal...")
+
     equal = await check_folders_equal(
         entry["original_directory"], ConfigReader().get_exclude_folders(), path, []
     )
     if not equal:
-        raise ValueError("After-copy consistency check failed. Please check manually.")
+        raise ValueError(
+            "After-copy consistency check failed. Please check manually. File lists written to /tmp/source.txt and /tmp/target.txt"
+        )
 
     JsonDatabase().set_archived(entry)
 
@@ -193,7 +215,9 @@ async def restore(
 
     equal = await check_folders_equal(ontape, [], str(restore_path), [])
     if not equal:
-        raise ValueError("After-copy consistency check failed. Please check manually.")
+        raise ValueError(
+            "After-copy consistency check failed. Please check manually. File lists written to /tmp/source.txt and /tmp/target.txt"
+        )
 
     return f"Restored [{tape_label}] {ontape} to {restore_path}"
 
