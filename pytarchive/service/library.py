@@ -230,6 +230,7 @@ class Library:
             try:
                 await self._create_filesystem(progress)
             except subprocess.CalledProcessError as e:
+                logger.error(f"mkltfs returned {e.stderr}")
                 if "LTFS15047E Medium is already formatted" not in e.stderr:
                     raise e
 

@@ -74,12 +74,14 @@ async def run_command(
 
     exit_code = await process.wait()
 
+    await asyncio.wait([stdout_task, stderr_task], return_when=asyncio.ALL_COMPLETED)
+
     stdout = "\n".join(stdout_res)
     stderr = "\n".join(stderr_res)
 
+    print("stdout finished", stdout_task.done())
+
     try:
-        stdout_task.cancel()
-        stderr_task.cancel()
         abort_task.cancel()
         write_task.cancel()
     except:  # noqa
