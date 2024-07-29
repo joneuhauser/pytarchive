@@ -1,7 +1,6 @@
 import asyncio
 import os
 from pathlib import Path
-import shutil
 from typing import List, Optional
 
 import humanize
@@ -178,9 +177,9 @@ async def archive(
     JsonDatabase().set_archived(entry)
 
     # Finally, delete the source folder
-    shutil.rmtree(entry["original_directory"])
+    # shutil.rmtree(entry["original_directory"])
 
-    return f"Archived {entry['original_directory']} to tape {tape_label} and deleted source folder"
+    return f"Archived {entry['original_directory']} to tape {tape_label}"
 
 
 async def restore(
