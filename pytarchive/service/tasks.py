@@ -138,6 +138,9 @@ async def archive(
         cwd=entry["original_directory"],
     )
 
+    with open("/tmp/fileslist.txt", "w") as f:
+        f.write(files)
+
     if abort_event.is_set():
         os.rmdir(path)
         return
@@ -145,7 +148,7 @@ async def archive(
     progress_callback("Ordering the files for writing to tape...")
 
     # Copy
-    await run_command(
+    stdout, _ = await run_command(
         "python3",
         str(Path(__file__).parent / "ordered_copy.py"),
         "-t",
@@ -158,6 +161,9 @@ async def archive(
         abort_event=abort_event,
         cwd=entry["original_directory"],
     )
+
+    with open("/tmp/orderedcopy.txt", "w") as f:
+        f.write(files)
 
     if abort_event.is_set():
         # Afterwards, we don't allow to abort, we're practically done anyway.
