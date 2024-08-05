@@ -67,23 +67,10 @@ class JsonDatabase:
                 f"Invalid state transition from {entry['state']} to prepared."
             )
 
-    def set_archiving_queued(
-        self, entry: Dict[str, Any], tape: str, path_on_tape: str
-    ) -> Dict[str, Any]:
+    def set_archived(self, entry: Dict[str, Any], size: int) -> Dict[str, Any]:
         if entry["state"] == "prepared":
-            entry["state"] = "archiving_queued"
-            entry["path_on_tape"] = path_on_tape
-            entry["tape"] = tape
-            self._write_json()
-            return entry
-        else:
-            raise ValueError(
-                f"Invalid state transition from {entry['state']} to archiving_queued."
-            )
-
-    def set_archived(self, entry: Dict[str, Any]) -> Dict[str, Any]:
-        if entry["state"] == "archiving_queued":
             entry["state"] = "archived"
+            entry["size"] = size
             entry["archived"] = datetime.now().strftime("%b %d %Y %H:%M:%S")
             self._write_json()
             return entry

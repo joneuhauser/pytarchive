@@ -120,11 +120,15 @@ def handle_archive(args, client_socket, queue: WorkList):
     if target_filename == "" or target_filename in [
         e.get("path_on_tape")
         for e in JsonDatabase().get_directories_on_tape(args.tapelabel)
+        if e["state"] == "archived"
     ]:
         client_socket.write(
             f"Directory {target_filename} already exists on tape {args.tapelabel}, choose a different name".encode()
         )
         return
+
+    entry["path_on_tape"] = target_filename
+    entry["tape"] = args.tapelabel
 
     try:
         os.stat(args.folder)
@@ -132,13 +136,11 @@ def handle_archive(args, client_socket, queue: WorkList):
         client_socket.write(f"Error: {e}".encode())
         return
 
-    JsonDatabase().set_archiving_queued(entry, args.tapelabel, target_filename)
-
     queue.append(
         WorkItem(
             args.priority,
             "archive",
-            [args.folder],
+            [args.folder, args.tapelabel, target_filename],
             description,
         )
     )

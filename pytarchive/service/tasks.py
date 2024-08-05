@@ -87,10 +87,13 @@ async def check_folders_equal(
 
 
 async def archive(
-    folder: str, progress_callback, abort_event: Optional[asyncio.Event] = None
+    folder: str,
+    tape_label: str,
+    target_filename: str,
+    progress_callback,
+    abort_event: Optional[asyncio.Event] = None,
 ):
     entry = JsonDatabase()._get_folder(folder)
-    tape_label = entry["tape"]
     await Library().ensure_tape_mounted(tape_label, progress_callback, abort_event)
 
     if abort_event.is_set():
@@ -115,7 +118,7 @@ async def archive(
             found = True
     assert found
 
-    path = "/ltfs/" + entry["path_on_tape"]
+    path = "/ltfs/" + target_filename
 
     # Great. Let's create a directory
     os.mkdir(path)
@@ -182,10 +185,26 @@ async def archive(
             "After-copy consistency check failed. Please check manually. File lists written to /tmp/source.txt and /tmp/target.txt"
         )
 
-    JsonDatabase().set_archived(entry)
+    progress_callback("Querying size of folder on tape...")
+
+    stdout, _ = await run_command(
+        "du",
+        "-s",
+        path,
+        preserve_stderr=True,
+        preserve_stdout=True,
+    )
+
+    size = int(stdout.split()[0])
+
+    JsonDatabase().set_archived(entry, size)
 
     # Finally, delete the source folder
     # shutil.rmtree(entry["original_directory"])
+
+    progress_callback("Unmounting the tape...")
+
+    await Library().ensure_tape_unmounted(progress_callback)
 
     return f"Archived {entry['original_directory']} to tape {tape_label}"
 
@@ -225,6 +244,10 @@ async def restore(
         raise ValueError(
             "After-copy consistency check failed. Please check manually. File lists written to /tmp/source.txt and /tmp/target.txt"
         )
+
+    progress_callback("Unmounting the tape...")
+
+    await Library().ensure_tape_unmounted(progress_callback)
 
     return f"Restored [{tape_label}] {ontape} to {restore_path}"
 
