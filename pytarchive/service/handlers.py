@@ -217,3 +217,19 @@ def handle_inventory(args, client_socket, queue: WorkList):
             )
         )
     client_socket.write(b"Inventory queued")
+
+
+def handle_deletable(client_socket):
+    print("hi")
+    result = []
+    for folder in JsonDatabase().get_entries_by_state("archived"):
+        if Path(folder["original_directory"]).is_dir():
+            result.append(f"{folder['original_directory']} ({folder['description']})")
+    if len(result) == 0:
+        client_socket.write(b"Nothing to delete")
+
+    else:
+        client_socket.write(
+            b"The following directories can be deleted:\n\t"
+            + "\n\t".join(result).encode()
+        )

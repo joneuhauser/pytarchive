@@ -11,6 +11,7 @@ from pytarchive.service.config import ConfigReader
 from pytarchive.service.handlers import (
     handle_abort,
     handle_archive,
+    handle_deletable,
     handle_explore,
     handle_prepare,
     handle_queue,
@@ -145,6 +146,8 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
         handle_explore(args, client_socket, queue)
     elif args.command == "inventory":
         handle_inventory(args, client_socket, queue)
+    elif args.command == "deletable":
+        handle_deletable(client_socket)
     else:
         client_socket.write(parser.format_help().encode())
 
