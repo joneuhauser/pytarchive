@@ -1,7 +1,7 @@
 from __future__ import annotations
 import argparse
 import asyncio
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import os
 import sys
@@ -48,34 +48,51 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
     subparsers = parser.add_subparsers(dest="command")
 
     # Synchronous commands
-    subparsers.add_parser("queue")
-    subparsers.add_parser("summary")
+    subparsers.add_parser("queue", help="Lists all currently running and failed tasks")
+    subparsers.add_parser(
+        "summary",
+        help="Shows a list of all known tapes with the directories archived on them",
+    )
 
-    parser_abort = subparsers.add_parser("abort")
+    parser_abort = subparsers.add_parser(
+        "abort",
+        help="Aborts a task using its task id, permanently removing it from the queue",
+    )
     parser_abort.add_argument("task")
 
-    parser_abort = subparsers.add_parser("requeue")
+    parser_abort = subparsers.add_parser(
+        "requeue", help="Restarts a failed task using its task id"
+    )
     parser_abort.add_argument("failedtask")
 
     # Asynchronous commands
-    parser_prepare = subparsers.add_parser("prepare")
+    parser_prepare = subparsers.add_parser(
+        "prepare", help="Prepares a directory (computes the directories' size)"
+    )
     parser_prepare.add_argument("folder")
     parser_prepare.add_argument("description")
     parser_prepare.add_argument("--priority", type=int, default=0)
 
-    parser_archive = subparsers.add_parser("archive")
+    parser_archive = subparsers.add_parser(
+        "archive", help="Archives a prepared directory."
+    )
     parser_archive.add_argument("folder")
     parser_archive.add_argument("tapelabel")
     parser_archive.add_argument("-t", "--targetname", default=None)
     parser_archive.add_argument("--priority", type=int, default=DEFAULT_PRIORITY)
 
-    parser_restore = subparsers.add_parser("restore")
+    parser_restore = subparsers.add_parser(
+        "restore", help="Restores an archived directory to another location."
+    )
     parser_restore.add_argument("folder")
     parser_restore.add_argument("restore_path")
     parser_restore.add_argument("-s", "--subfolder", default="")
     parser_restore.add_argument("--priority", type=int, default=DEFAULT_PRIORITY)
 
-    parser_explore = subparsers.add_parser("explore")
+    parser_explore = subparsers.add_parser(
+        "explore",
+        help="Mounts a tape for a specified time so you can explore its contents.",
+    )
     parser_explore.add_argument("tapelabel")
     parser_explore.add_argument("-t", "--time", type=int, default=600)
     parser_explore.add_argument("--priority", type=int, default=EXPLORE_PRIORITY)
@@ -93,12 +110,18 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
 
     try:
         f = io.StringIO()
+        f2 = io.StringIO()
         with redirect_stderr(f):
-            displ = [i.decode() for i in command.split(b"\00")]
-            args = parser.parse_args(displ)
+            with redirect_stdout(f2):
+                displ = [i.decode() for i in command.split(b"\00")]
+                args = parser.parse_args(displ)
     except SystemExit:
         s = f.getvalue()
-        client_socket.write(s.encode())
+        s2 = f2.getvalue()
+        if len(s) > 0:
+            client_socket.write(s.encode())
+        else:
+            client_socket.write(s2.encode())
         return
 
     logger.debug(args.command)
