@@ -1,3 +1,10 @@
+from logging.handlers import SMTPHandler
+import smtplib
+from email.message import EmailMessage
+import email.utils
+from pytarchive.service.log import logger
+
+
 def singleton(cls):
     instances = {}
 
@@ -7,3 +14,32 @@ def singleton(cls):
         return instances[cls]
 
     return getinstance
+
+
+def send_to_logging_addr(header, content):
+    # We find out the SMTP handler and send the report to that email.
+    try:
+        handler: SMTPHandler = next(
+            i for i in logger.handlers if isinstance(i, SMTPHandler)
+        )
+    except StopIteration:
+        raise ValueError("No SMTP handler specified.")
+
+    port = handler.mailport
+    if not port:
+        port = smtplib.SMTP_PORT
+    smtp = smtplib.SMTP(handler.mailhost, port, timeout=handler.timeout)
+    msg = EmailMessage()
+    msg["From"] = handler.fromaddr
+    msg["To"] = ",".join(handler.toaddrs)
+    msg["Subject"] = header
+    msg["Date"] = email.utils.localtime()
+    msg.set_content(content)
+    if handler.username:
+        if handler.secure is not None:
+            smtp.ehlo()
+            smtp.starttls(*handler.secure)
+            smtp.ehlo()
+        smtp.login(handler.username, handler.password)
+    smtp.send_message(msg)
+    smtp.quit()

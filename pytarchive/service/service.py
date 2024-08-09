@@ -7,6 +7,7 @@ import os
 import sys
 import fcntl
 import signal
+from pytarchive.service.config import ConfigReader
 from pytarchive.service.handlers import (
     handle_abort,
     handle_archive,
@@ -16,6 +17,7 @@ from pytarchive.service.handlers import (
     handle_requeue,
     handle_restore,
     handle_summary,
+    handle_inventory,
 )
 from pytarchive.service.log import logger
 from pytarchive.service.work_queue import WorkList
@@ -25,6 +27,7 @@ PID_FILE = "/tmp/pytarchive_service.pid"
 SOCKET_FILE = "/tmp/pytarchive_service.sock"
 DEFAULT_PRIORITY = 100
 EXPLORE_PRIORITY = 20
+INVENTORY_PRIORITY = 200
 
 
 def recv_all(sock):
@@ -77,6 +80,17 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
     parser_explore.add_argument("-t", "--time", type=int, default=600)
     parser_explore.add_argument("--priority", type=int, default=EXPLORE_PRIORITY)
 
+    parser_inventory = subparsers.add_parser(
+        "inventory",
+        help="Reports a summary of the subfolders of a given directory. Without argument, the source_folders key in ine [General] section of the config file is used.",
+    )
+    parser_inventory.add_argument(
+        "folders", nargs="*", default=ConfigReader().get_source_folders()
+    )
+    parser_inventory.add_argument("--priority", type=int, default=INVENTORY_PRIORITY)
+
+    subparsers.add_parser("deletable")
+
     try:
         f = io.StringIO()
         with redirect_stderr(f):
@@ -86,6 +100,8 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
         s = f.getvalue()
         client_socket.write(s.encode())
         return
+
+    logger.debug(args.command)
 
     if args.command == "queue":
         handle_queue(client_socket, queue)
@@ -104,6 +120,8 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
         handle_restore(args, client_socket, queue)
     elif args.command == "explore":
         handle_explore(args, client_socket, queue)
+    elif args.command == "inventory":
+        handle_inventory(args, client_socket, queue)
     else:
         client_socket.write(parser.format_help().encode())
 

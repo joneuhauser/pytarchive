@@ -36,3 +36,7 @@ class ConfigReader:
     def get_exclude_folders(self):
         entry = self.get("General", "exclude_folders")
         return [e.strip() for e in entry.split(",")]
+
+    def get_source_folders(self):
+        entry = self.get("General", "source_folders")
+        return [e.strip() for e in entry.split(",")]

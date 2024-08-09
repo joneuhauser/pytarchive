@@ -1,4 +1,7 @@
 import asyncio
+from dataclasses import dataclass
+import datetime
+from itertools import groupby
 import os
 from pathlib import Path
 from typing import List, Optional
@@ -9,26 +12,33 @@ from pytarchive.service.db import JsonDatabase
 from pytarchive.service.library import Library
 from pytarchive.service.command_runner import run_command
 from pytarchive.service.log import logger
+from pytarchive.service.utils import send_to_logging_addr
+
+
+async def _get_size(folder: str, abort: asyncio.Event):
+    stdout, _ = await run_command(
+        "du",
+        "-s",
+        folder,
+        abort_event=abort,
+        preserve_stderr=True,
+        preserve_stdout=True,
+    )
+    if abort.is_set():
+        return 0
+
+    return int(stdout.split()[0])
 
 
 async def get_size(folder: str, progress, abort: asyncio.Event):
     entry = JsonDatabase()._get_folder(folder)
     progress(f"Querying size of folder {entry['original_directory']}")
 
-    stdout, _ = await run_command(
-        "du",
-        "-s",
-        entry["original_directory"],
-        abort_event=abort,
-        preserve_stderr=True,
-        preserve_stdout=True,
-    )
+    size = await _get_size(entry["original_directory"], abort)
 
     if abort.is_set():
         JsonDatabase().data.remove(entry)
         return
-
-    size = int(stdout.split()[0])
 
     assert entry in JsonDatabase().data
 
@@ -267,3 +277,77 @@ async def explore(tape_label, time: int, progress_callback, abort_event: asyncio
     await Library().ensure_tape_unmounted(progress_callback)
 
     return f"Explored tape {tape_label}"
+
+
+age_groups = [
+    ("2 years", datetime.timedelta(365 * 2)),
+    ("1 years", datetime.timedelta(365 * 2)),
+    ("6 months", datetime.timedelta(365 / 2)),
+    ("Recent", datetime.timedelta(0)),
+]
+
+
+@dataclass
+class InventoryItem:
+    dir: str
+    size: int
+    last_modified: datetime.date
+
+    @property
+    def age_category(self):
+        return next(
+            (
+                i
+                for i, (_, delta) in enumerate(age_groups)
+                if datetime.datetime.now() - self.last_modified >= delta
+            ),
+            3,
+        )
+
+    def __str__(self):
+        return (
+            f"    {self.dir.ljust(50)} "
+            f"{humanize.naturalsize(self.size * 1024, binary=True).ljust(10)} "
+            f"{(humanize.naturaldelta(datetime.datetime.now()-self.last_modified) + ' ago').ljust(30)}"
+        )
+
+
+async def inventory(folder, progress_callback, abort_event: asyncio.Event):
+    result = []
+    for subfolder in [f.path for f in os.scandir(folder) if f.is_dir()]:
+        progress_callback(f"Getting size of {subfolder}..")
+        size = await _get_size(subfolder, abort_event)
+
+        if abort_event.is_set():
+            return
+
+        # This just reads the mtime, but usually this is set when a user logs in
+        last_modified = datetime.datetime.fromtimestamp(os.path.getmtime(subfolder))
+
+        result.append(InventoryItem(subfolder, size, last_modified))
+
+    grouped = {
+        k: list(v)
+        for k, v in groupby(
+            sorted(result, key=lambda x: (x.age_category, -x.size)),
+            key=lambda x: x.age_category,
+        )
+    }
+    resulting_str = []
+    for category, items in grouped.items():
+        resulting_str.append(
+            f"Older than {age_groups[category][0]}:"
+            if category != 3
+            else "Recently changed:"
+        )
+        resulting_str.append(
+            f"    {'Directory'.ljust(50)} {'Size'.ljust(10)} {'Last changed'.ljust(30)}"
+        )
+        for item in items:
+            resulting_str.append("    " + str(item))
+
+        resulting_str.append("")
+
+    logger.info("\n".join(resulting_str))
+
+    send_to_logging_addr(f"Inventory report for {folder}", "\n".join(resulting_str))

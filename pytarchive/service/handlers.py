@@ -203,3 +203,17 @@ def handle_explore(args, client_socket, queue: WorkList):
         )
     )
     client_socket.write(b"Exploring queued")
+
+
+def handle_inventory(args, client_socket, queue: WorkList):
+    for folder in args.folders:
+        description = f"Taking inventory of: {folder}"
+        queue.append(
+            WorkItem(
+                args.priority,
+                "inventory",
+                [folder],
+                description,
+            )
+        )
+    client_socket.write(b"Inventory queued")
