@@ -211,11 +211,16 @@ async def archive(
 
     # Finally, delete the source folder
     # shutil.rmtree(entry["original_directory"])
+    await asyncio.sleep(200)
+    for i in range(10):
+        try:
+            progress_callback(f"Unmounting the tape (attempt {i} of 10)...")
+            await Library().ensure_tape_unmounted(progress_callback)
+            break
+        except:  # noqa: E722
+            await asyncio.sleep(30)
 
-    progress_callback("Unmounting the tape...")
-
-    await Library().ensure_tape_unmounted(progress_callback)
-
+    await asyncio.sleep(200)
     return f"Archived {entry['original_directory']} to tape {tape_label}"
 
 
