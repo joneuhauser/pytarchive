@@ -107,8 +107,11 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
     )
     parser_inventory.add_argument("--priority", type=int, default=INVENTORY_PRIORITY)
 
-    subparsers.add_parser("deletable")
-
+    parser_deleteable = subparsers.add_parser(
+        "deleteable",
+        help="Report directories that are archived but still present in the original location",
+    )
+    parser_deleteable.add_argument("--ignore", nargs="*")
     try:
         f = io.StringIO()
         f2 = io.StringIO()
@@ -119,6 +122,8 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
     except SystemExit:
         s = f.getvalue()
         s2 = f2.getvalue()
+
+        print(f"Exited with {s} and {s2}")
         if len(s) > 0:
             client_socket.write(s.encode())
         else:
@@ -146,8 +151,8 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
         handle_explore(args, client_socket, queue)
     elif args.command == "inventory":
         handle_inventory(args, client_socket, queue)
-    elif args.command == "deletable":
-        handle_deletable(client_socket)
+    elif args.command == "deleteable":
+        handle_deletable(args, client_socket)
     else:
         client_socket.write(parser.format_help().encode())
 
@@ -172,7 +177,10 @@ class pytarchiveServer(asyncio.Protocol):
         command = data.strip()
         displ = [i.decode() for i in command.split(b"\00")]
         logger.info(f"Received command: {displ}")
-        handle_command(command, self.transport, self.queue)
+        try:
+            handle_command(command, self.transport, self.queue)
+        except Exception as e:
+            logger.log("Error on data receive", e)
 
 
 async def main():

@@ -7,6 +7,7 @@ from pytarchive.service.config import ConfigReader
 from pytarchive.service.db import JsonDatabase
 from pytarchive.service.library import Library
 from pytarchive.service.work_queue import WorkItem, WorkList
+from pytarchive.service.is_dir import is_dir_with_timeout
 
 
 def handle_queue(client_socket, queue: WorkList):
@@ -219,17 +220,33 @@ def handle_inventory(args, client_socket, queue: WorkList):
     client_socket.write(b"Inventory queued")
 
 
-def handle_deletable(client_socket):
-    print("hi")
+def handle_deletable(args, client_socket):
     result = []
+    result_none = []
     for folder in JsonDatabase().get_entries_by_state("archived"):
-        if Path(folder["original_directory"]).is_dir():
-            result.append(f"{folder['original_directory']} ({folder['description']})")
-    if len(result) == 0:
+        dir = folder["original_directory"]
+        if any(dir.startswith(i) for i in args.ignore):
+            continue
+        res = is_dir_with_timeout(Path(folder["original_directory"]), timeout=0.1)
+        if res is None:
+            result_none.append(f"{dir} ({folder['description']})")
+        if res:
+            result.append(
+                f"{dir} ({folder['description']}, archived on {folder['tape']})"
+            )
+    if len(result) == 0 and len(result_none) == 0:
         client_socket.write(b"Nothing to delete")
 
     else:
-        client_socket.write(
-            b"The following directories can be deleted:\n\t"
+        res = b""
+        if len(result_none) > 0:
+            res = (
+                b"\033[33mThe following directories could not be queried:\n\t"
+                + "\n\t".join(result_none).encode()
+                + b"\033[0m"
+            )
+        res += (
+            b"\n\nThe following directories can be deleted:\n\t"
             + "\n\t".join(result).encode()
         )
+        client_socket.write(res)
