@@ -279,6 +279,9 @@ async def explore(tape_label, time: int, progress_callback, abort_event: asyncio
         if abort_event.is_set():
             break
 
+    # Kill all processes that are still running on the tape
+    await run_command("fuser", "-km", "/ltfs")
+
     await Library().ensure_tape_unmounted(progress_callback)
 
     return f"Explored tape {tape_label}"
