@@ -28,7 +28,7 @@ def send_to_logging_addr(header, content):
     port = handler.mailport
     if not port:
         port = smtplib.SMTP_PORT
-    smtp = smtplib.SMTP(handler.mailhost, port, timeout=handler.timeout)
+    smtp = smtplib.SMTP(handler.mailhost, port)
     msg = EmailMessage()
     msg["From"] = handler.fromaddr
     msg["To"] = ",".join(handler.toaddrs)
