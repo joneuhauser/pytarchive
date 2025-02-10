@@ -194,12 +194,11 @@ def handle_explore(args, client_socket, queue: WorkList):
             f"Requested tape not found. Available tapes: {sorted(list(Library().get_available_tapes().values()))}".encode()
         )
         return
-
     queue.append(
         WorkItem(
             args.priority,
             "explore",
-            [args.tapenumber],
+            [args.tapelabel, args.time, args.email],
             description,
         )
     )

@@ -96,6 +96,13 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
     )
     parser_explore.add_argument("tapelabel")
     parser_explore.add_argument("-t", "--time", type=int, default=600)
+    parser_explore.add_argument(
+        "-e",
+        "--email",
+        help="Email to send mount notification to",
+        default=None,
+        type=str,
+    )
     parser_explore.add_argument("--priority", type=int, default=EXPLORE_PRIORITY)
 
     parser_inventory = subparsers.add_parser(

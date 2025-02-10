@@ -4,6 +4,7 @@ import datetime
 from itertools import groupby
 import os
 from pathlib import Path
+import socket
 from typing import List, Optional
 
 import humanize
@@ -12,7 +13,7 @@ from pytarchive.service.db import JsonDatabase
 from pytarchive.service.library import Library
 from pytarchive.service.command_runner import run_command
 from pytarchive.service.log import logger
-from pytarchive.service.utils import send_to_logging_addr
+from pytarchive.service.utils import send_to_addr, send_to_logging_addr
 
 
 async def _get_size(folder: str, abort: asyncio.Event):
@@ -267,8 +268,32 @@ async def restore(
     return f"Restored [{tape_label}] {ontape} to {restore_path}"
 
 
-async def explore(tape_label, time: int, progress_callback, abort_event: asyncio.Event):
-    await Library().ensure_tape_mounted(tape_label, progress_callback, abort_event)
+async def explore(
+    tape_label,
+    time: int,
+    email: Optional[str],
+    progress_callback,
+    abort_event: asyncio.Event,
+):
+    await Library().ensure_tape_mounted(
+        tape_label, progress_callback, abort_event, path="/ltfs"
+    )
+
+    # Now start the NFS mount
+    await run_command(
+        "exportfs",
+        "-o",
+        ConfigReader().get("Export", "settings"),
+        ConfigReader().get("Export", "to") + ":/ltfs",
+    )
+    if email is not None:
+        send_to_addr(
+            f"You can now explore tape {tape_label}",
+            f"""
+                 You can access it read-only by accessing //{socket.gethostname()}/ltfs via nfs. 
+                 The tape will be unmounted at {(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=time)).strftime("%Y-%m-%d %H:%M:%S %Z")} UTC""",
+            [email],
+        )
 
     start_time = asyncio.get_event_loop().time()
     while asyncio.get_event_loop().time() < start_time + time:
@@ -279,8 +304,15 @@ async def explore(tape_label, time: int, progress_callback, abort_event: asyncio
         if abort_event.is_set():
             break
 
+    await run_command("exportfs", "-u", ConfigReader().get("Export", "to") + ":/ltfs")
+
     # Kill all processes that are still running on the tape
-    await run_command("fuser", "-km", "/ltfs")
+    try:
+        await run_command("fuser", "-km", "/ltfs")
+    except Exception as ex:
+        # fuser returns 1 if no accessing process was found
+        if "exited with code 1" not in ex.args[0]:
+            raise ex
 
     await Library().ensure_tape_unmounted(progress_callback)
 

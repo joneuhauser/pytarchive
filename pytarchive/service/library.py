@@ -109,13 +109,13 @@ class Library:
         await run_command("mtx", "-f", device, "load", str(slot_id))
         progress(f"Tape loaded from slot {slot_id}")
 
-    async def _mount_tape(self, progress):
+    async def _mount_tape(self, progress, path="/ltfs"):
         device = ConfigReader().get_drive_serial()
-        progress("Mounting tape on /ltfs...")
+        progress(f"Mounting tape on {path}...")
         if self.drive_empty():
             raise ValueError("No tape loaded")
-        await run_command("ltfs", "-o", f"devname={device}", "/ltfs")
-        progress(f"Tape mounted on /ltfs with device {device}")
+        await run_command("ltfs", "-o", f"devname={device}", path)
+        progress(f"Tape mounted on {path} with device {device}")
 
     async def _create_filesystem(self, progress):
         """Creates a file system on the currently mounted tape"""
@@ -129,9 +129,9 @@ class Library:
         await run_command("mkltfs", "-d", device, "-s", volume_tag[0:6], "-c")
         progress(f"Filesystem created on tape {volume_tag} with device {device}")
 
-    async def _unmount_tape(self, progress):
+    async def _unmount_tape(self, progress, path="/ltfs"):
         progress("Unmounting tape...")
-        await run_command("umount", "/ltfs")
+        await run_command("umount", path)
         progress("Tape unmounted")
 
     async def _unload(self, progress):
@@ -141,14 +141,17 @@ class Library:
         await run_command("mtx", "-f", device, "unload", str(target))
         progress(f"Tape unloaded into slot {target}")
 
-    def is_mounted(self):
+    def is_mounted(self, path="/ltfs"):
         with open("/proc/mounts", "r") as f:
             for line in f.readlines():
-                if line.split()[1] == "/ltfs":
+                if line.split()[1] == path:
                     return True
             return False
 
     def check_tape_consistency(self):
+        if self.is_mounted("/ltfs"):
+            logger.error("Skipping consistency check for explore-mounted tape")
+            return
         status = self.get_status()
         tape_barcode = status[0]["volume_tag"]
         on_tape = JsonDatabase().get_directories_on_tape(tape_barcode)
@@ -174,9 +177,10 @@ class Library:
             logger.info("Tape consistency check on %s successful.", tape_barcode)
 
     async def ensure_tape_unmounted(self, progress):
-        if self.is_mounted():
-            await self._unmount_tape(progress)
-            await asyncio.sleep(5)
+        for path in ["/ltfs", "/ltfs"]:
+            if self.is_mounted(path):
+                await self._unmount_tape(progress, path)
+                await asyncio.sleep(5)
 
     async def ensure_tape_unloaded(self, progress, cancel_event: asyncio.Event):
         if not self.drive_empty():
@@ -205,12 +209,12 @@ class Library:
         await self._load_tape(tape_barcode, progress)
 
     async def ensure_tape_mounted(
-        self, tape_barcode, progress, cancel_event: asyncio.Event
+        self, tape_barcode, progress, cancel_event: asyncio.Event, path="/ltfs"
     ):
         status = self.get_status()
         if not self.drive_empty():
-            if status[0]["volume_tag"] == tape_barcode and self.is_mounted():
-                # The correct tape is mounted
+            if status[0]["volume_tag"] == tape_barcode and self.is_mounted(path):
+                # The correct tape is mounted in the correct location
                 logger.info("Tape already mounted")
                 self.check_tape_consistency()
                 return
@@ -237,6 +241,6 @@ class Library:
         if cancel_event.is_set():
             return
 
-        await self._mount_tape(progress)
+        await self._mount_tape(progress, path)
 
         self.check_tape_consistency()
