@@ -1,5 +1,4 @@
 import asyncio
-import subprocess
 from typing import Optional
 from pytarchive.service.log import logger
 
@@ -11,12 +10,12 @@ async def run_command(
     abort_event: Optional[asyncio.Event] = None,
     preserve_stdout=False,
     preserve_stderr=True,
-    log_stdout=logger.debug,
+    log_stdout=logger.info,
     log_stderr=logger.error,
     stdin=None,
     **kwargs,
 ):
-    logger.debug(command, *args)
+    logger.info([command, *args])
     process = await asyncio.create_subprocess_exec(
         command,
         *args,
@@ -76,10 +75,6 @@ async def run_command(
     if abort_event is not None and abort_event.is_set():
         logger.info("Process aborted")
     elif exit_code != 0:
-        raise subprocess.CalledProcessError(
-            exit_code,
-            command,
-            stdout,
-            stderr,
-        )
+        raise Exception(f"""Command {command} {args} exited with code {exit_code}.
+        Stdout: {stdout}. Stderr: {stderr}""")
     return stdout, stderr

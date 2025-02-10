@@ -34,30 +34,32 @@ def handle_summary(client_socket, queue: WorkList):
 
 
 def handle_abort(args, client_socket, queue: WorkList):
-    for task in queue:
-        if task.format_hash() == args.task:
-            if task.is_running():
-                task.request_abort()
-                client_socket.write(b"Task abort scheduled, cleaning up...")
-            else:
-                queue.remove(task)
-                client_socket.write(b"Task removed from queue")
-            return
-    client_socket.write(b"Task ID not found")
+    def process_task(id):
+        for task in queue:
+            if task.format_hash() == id:
+                if task.is_running():
+                    task.request_abort()
+                    return f"Task {id}: abort scheduled, cleaning up..."
+                else:
+                    queue.remove(task)
+                    return f"Task {id} removed from queue"
+        return f"Task {id} not found"
+
+    client_socket.write("\n".join(process_task(id) for id in args.task).encode())
 
 
 def handle_requeue(args, client_socket, queue: WorkList):
-    for task in queue:
-        if task.format_hash() == args.failedtask:
-            if task.is_error():
-                task.error_msg = ""
-                client_socket.write(
-                    b"Error state reset. Task was added back into the queue"
-                )
-            else:
-                client_socket.write(b"Task was already queued")
-            return
-    client_socket.write(b"Task ID not found")
+    def process_task(id):
+        for task in queue:
+            if task.format_hash() == id:
+                if task.is_error():
+                    task.error_msg = ""
+                    return "Task {id}: Error state reset. Task was added back into the queue"
+                else:
+                    return f"Task {id} was already queued"
+        return f"Task {id} not found"
+
+    client_socket.write("\n".join(process_task(id) for id in args.failedtask).encode())
 
 
 def handle_prepare(args, client_socket, queue: WorkList):

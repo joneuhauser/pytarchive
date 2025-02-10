@@ -59,12 +59,12 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
         "abort",
         help="Aborts a task using its task id, permanently removing it from the queue",
     )
-    parser_abort.add_argument("task")
+    parser_abort.add_argument("task", nargs="+")
 
     parser_abort = subparsers.add_parser(
         "requeue", help="Restarts a failed task using its task id"
     )
-    parser_abort.add_argument("failedtask")
+    parser_abort.add_argument("failedtask", nargs="+", action="append")
 
     # Asynchronous commands
     parser_prepare = subparsers.add_parser(
