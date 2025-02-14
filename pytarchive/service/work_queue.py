@@ -6,7 +6,7 @@ import random
 import sys
 from textwrap import indent
 import traceback
-from typing import Coroutine, Dict, Iterable, List, Optional, Any
+from typing import Dict, Iterable, List, Optional, Any
 
 from pytarchive.service import tasks
 from pytarchive.service.utils import singleton
@@ -16,7 +16,7 @@ from pytarchive.service.log import logger
 @dataclass
 class WorkItem:
     priority: int
-    coroutine: Coroutine
+    coroutine: str
     args: List[Any]
     description: str
     error_msg: str = field(init=False)

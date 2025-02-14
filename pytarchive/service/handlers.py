@@ -129,15 +129,26 @@ def handle_archive(args, client_socket, queue: WorkList):
             f"Directory {target_filename} already exists on tape {args.tapelabel}, choose a different name".encode()
         )
         return
-
-    entry["path_on_tape"] = target_filename
-    entry["tape"] = args.tapelabel
-
     try:
         os.stat(args.folder)
     except (FileNotFoundError, PermissionError) as e:
         client_socket.write(f"Error: {e}".encode())
         return
+
+    msg = b""
+    existing = [
+        i for i in queue if i.args[0] == args.folder and i.coroutine == "archive"
+    ]
+    if len(existing) > 0:
+        if existing[0]._running:
+            client_socket.write(b"Folder is already in the process of being archived")
+            return
+        else:
+            queue.remove(existing[0])
+            msg = b"Removed existing archiving task for folder\n"
+
+    entry["path_on_tape"] = target_filename
+    entry["tape"] = args.tapelabel
 
     queue.append(
         WorkItem(
@@ -147,7 +158,7 @@ def handle_archive(args, client_socket, queue: WorkList):
             description,
         )
     )
-    client_socket.write(b"Archiving queued")
+    client_socket.write(msg + b"Archiving queued")
 
 
 def handle_restore(args, client_socket, queue: WorkList):
