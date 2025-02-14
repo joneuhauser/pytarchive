@@ -106,7 +106,7 @@ class JsonDatabase:
             if tape is not None:
                 if tape not in sums:
                     sums[tape] = 0
-                sums[tape] += folder.get("size")
+                sums[tape] += folder.get("size", 0)
         ordered = sorted(sums.items(), key=lambda e: e[1], reverse=True)
         ordered = [
             i for i in ordered if (i[1] + entry["size"]) < ConfigReader().get_maxsize()
@@ -168,7 +168,7 @@ class JsonDatabase:
                         key=lambda x: -float(x["size"]),
                     )
                     total_size = (
-                        sum(folder.get("size") for folder in tape_entries) * 1024
+                        sum(folder.get("size", 0) for folder in tape_entries) * 1024
                     )
                     maxsize = ConfigReader().get_maxsize() * 1024
                     res.append(

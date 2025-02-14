@@ -121,7 +121,7 @@ async def archive(
     tape_label: str,
     target_filename: str,
     progress_callback,
-    abort_event: Optional[asyncio.Event] = None,
+    abort_event: asyncio.Event,
 ):
     entry = JsonDatabase()._get_folder(folder)
     await Library().ensure_tape_mounted(tape_label, progress_callback, abort_event)
@@ -152,14 +152,14 @@ async def archive(
     if entry["compressed"]:
         base = Path(entry["original_directory"])
         source = str(base.parent / base.with_suffix(".tar.gz"))
-        path = (Path("/ltfs/") / target_filename).with_suffix(".tar.gz")
-        if path.exists():
+        pth = (Path("/ltfs/") / target_filename).with_suffix(".tar.gz")
+        if pth.exists():
             raise Exception("Unable to create archive on tape, file already exists.")
         await run_command(
             "rsync",
             "-auvp",
             source,
-            path,
+            str(pth),
             "--info=progress2",
             log_stdout=lambda str: None,
             stdout_callback=lambda str: progress_callback(f"Copying: {str}"),
@@ -267,9 +267,9 @@ async def archive(
 async def restore(
     folder: str,
     restore_path: Path,
-    subfolder="",
-    progress_callback=lambda _: None,
-    abort_event: Optional[asyncio.Event] = None,
+    subfolder,
+    progress_callback,
+    abort_event: asyncio.Event,
 ):
     entry = JsonDatabase()._get_folder(folder)
     tape_label = entry["tape"]
@@ -370,7 +370,7 @@ age_groups = [
 class InventoryItem:
     dir: str
     size: int
-    last_modified: datetime.date
+    last_modified: datetime.datetime
 
     @property
     def age_category(self):

@@ -28,8 +28,6 @@ def handle_queue(client_socket, queue: WorkList):
 
 
 def handle_summary(client_socket, queue: WorkList):
-    res = f"{Library().get_all_tapes()}"
-    res = res.encode()
     client_socket.write(f"{JsonDatabase().format(Library().get_all_tapes())}".encode())
 
 

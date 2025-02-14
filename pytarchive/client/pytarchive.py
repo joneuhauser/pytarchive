@@ -7,7 +7,7 @@ import socket
 SOCKET_FILE = "/tmp/pytarchive_service.sock"
 
 
-def send_command(command: bytes) -> str:
+def send_command(command: bytes):
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client_socket:
         try:
             client_socket.connect(SOCKET_FILE)

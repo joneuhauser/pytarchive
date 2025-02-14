@@ -51,6 +51,8 @@ class Library:
                     match = re.match(r"\s*Data Transfer Element (\d)+:Empty", line)
                     if match:
                         status = "Empty"
+                if not match:
+                    raise ValueError("Unable to parse mtx status output")
                 slots[int(match.group(1))] = {
                     "status": status,
                     "volume_tag": volume_tag,
@@ -155,16 +157,16 @@ class Library:
             raise NotImplementedError("Subpath folders need extra work")
         assert self.is_mounted()
 
-        on_tape = sorted([name for name in os.listdir("/ltfs")])
+        dirs_on_tape = sorted([name for name in os.listdir("/ltfs")])
 
-        if on_tape != should_be_on_tape:
+        if dirs_on_tape != should_be_on_tape:
             logger.error(
                 """Tape consistency check on %s failed. 
                 Expected contents:\n%s, 
                 Actual contents:\n%s.""",
                 tape_barcode,
                 "\n".join(should_be_on_tape),
-                "\n".join(on_tape),
+                "\n".join(dirs_on_tape),
             )
         else:
             logger.info("Tape consistency check on %s successful.", tape_barcode)

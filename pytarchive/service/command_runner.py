@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional
+from typing import List, Optional
 from pytarchive.service.log import logger
 
 
@@ -25,7 +25,7 @@ async def run_command(
         **kwargs,
     )
 
-    if stdin is not None:
+    if stdin is not None and process.stdin is not None:
         stdin = stdin.encode()
         process.stdin.write(stdin)
         await process.stdin.drain()
@@ -53,8 +53,8 @@ async def run_command(
                 return
             await asyncio.sleep(0.1)
 
-    stdout_res = []
-    stderr_res = []
+    stdout_res: List[str] = []
+    stderr_res: List[str] = []
 
     # Log both stdout and stderr, and await cancellation. Wait until one of those tasks is finished.
     done, pending = await asyncio.wait(

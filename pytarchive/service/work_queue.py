@@ -6,7 +6,7 @@ import random
 import sys
 from textwrap import indent
 import traceback
-from typing import Dict, Iterable, List, Optional, Any
+from typing import Dict, Iterable, List, Optional, Any, SupportsIndex
 
 from pytarchive.service import tasks
 from pytarchive.service.utils import singleton
@@ -43,10 +43,10 @@ class WorkItem:
     def is_error(self) -> bool:
         return self.error_msg != ""
 
-    def request_abort(self) -> bool:
+    def request_abort(self):
         self._abort_handle.set()
 
-    async def run(self) -> bool:
+    async def run(self):
         self._running = True
         await getattr(tasks, self.coroutine)(
             *self.args, self.update_progress, self._abort_handle
@@ -104,12 +104,12 @@ class WorkList(List[WorkItem]):
         self.callback()
         return res
 
-    def pop(self, index: int) -> Any:
+    def pop(self, index: SupportsIndex = -1) -> WorkItem:
         res = super().pop(index)
         self.callback()
         return res
 
-    def get_top(self) -> WorkItem:
+    def get_top(self) -> Optional[WorkItem]:
         list = sorted([i for i in self if i.error_msg == ""], key=lambda i: i.priority)
         if len(list) == 0:
             return None

@@ -193,7 +193,7 @@ class pytarchiveServer(asyncio.Protocol):
         try:
             handle_command(command, self.transport, self.queue)
         except Exception as e:
-            logger.log("Error on data receive", e)
+            logger.log("Error on data receive: " + str(e))
 
 
 async def main():
