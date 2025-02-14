@@ -144,7 +144,7 @@ async def archive(
 
             if entry["size"] > int(available):
                 raise ValueError(
-                    f"Not enough space on tape {tape_label}. Available: {humanize.naturalsize(available, binary=True)}. Required: {humanize.naturalsize(entry['size'], binary=True)}"
+                    f"Not enough space on tape {tape_label}. Available: {humanize.naturalsize(available * 1024, binary=True)}. Required: {humanize.naturalsize(entry['size'] * 1024, binary=True)}"
                 )
             found = True
     assert found
