@@ -55,10 +55,13 @@ class JsonDatabase:
         self._write_json()
         return new_entry
 
-    def set_prepared(self, entry: Dict[str, Any], size: int) -> Dict[str, Any]:
+    def set_prepared(
+        self, entry: Dict[str, Any], size: int, compressed: bool = False
+    ) -> Dict[str, Any]:
         if entry["state"] in ("preparing", "prepared"):
             entry["state"] = "prepared"
             entry["size"] = size
+            entry["compressed"] = compressed
             entry["size_queried"] = datetime.now().strftime("%b %d %Y %H:%M:%S")
             self._write_json()
             return entry

@@ -87,11 +87,7 @@ class Library:
     def find_tape(self, volume_tag):
         slots = self.get_status()
         for slot, info in slots.items():
-            if info["volume_tag"] == (
-                volume_tag
-                if (volume_tag.endswith("L9") or volume_tag.endswith("L1"))
-                else (volume_tag + "L9")
-            ):
+            if info["volume_tag"] == (volume_tag):
                 return slot
         return None
 
@@ -149,9 +145,6 @@ class Library:
             return False
 
     def check_tape_consistency(self):
-        if self.is_mounted("/ltfs"):
-            logger.error("Skipping consistency check for explore-mounted tape")
-            return
         status = self.get_status()
         tape_barcode = status[0]["volume_tag"]
         on_tape = JsonDatabase().get_directories_on_tape(tape_barcode)

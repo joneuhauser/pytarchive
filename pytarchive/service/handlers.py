@@ -35,8 +35,13 @@ def handle_summary(client_socket, queue: WorkList):
 
 def handle_abort(args, client_socket, queue: WorkList):
     def process_task(id):
+        if isinstance(id, list):
+            id = id[0]
         for task in queue:
             if task.format_hash() == id:
+                if task.is_error():
+                    queue.remove(task)
+                    return f"Failed task {id} removed from queue"
                 if task.is_running():
                     task.request_abort()
                     return f"Task {id}: abort scheduled, cleaning up..."
@@ -50,11 +55,13 @@ def handle_abort(args, client_socket, queue: WorkList):
 
 def handle_requeue(args, client_socket, queue: WorkList):
     def process_task(id):
+        if isinstance(id, list):
+            id = id[0]
         for task in queue:
             if task.format_hash() == id:
                 if task.is_error():
                     task.error_msg = ""
-                    return "Task {id}: Error state reset. Task was added back into the queue"
+                    return f"Task {id}: Error state reset. Task was added back into the queue"
                 else:
                     return f"Task {id} was already queued"
         return f"Task {id} not found"
@@ -75,8 +82,8 @@ def handle_prepare(args, client_socket, queue: WorkList):
     queue.append(
         WorkItem(
             args.priority,
-            "get_size",
-            [args.folder],
+            "prepare",
+            [args.folder, args.compress],
             description,
         )
     )
@@ -140,14 +147,14 @@ def handle_archive(args, client_socket, queue: WorkList):
         i for i in queue if i.args[0] == args.folder and i.coroutine == "archive"
     ]
     if len(existing) > 0:
-        if existing[0]._running:
+        if existing[0]._running and not existing[0].is_error():
             client_socket.write(b"Folder is already in the process of being archived")
             return
         else:
             queue.remove(existing[0])
             msg = b"Removed existing archiving task for folder\n"
 
-    entry["path_on_tape"] = target_filename
+    entry["path_on_tape"] = target_filename + (".tar.gz" if entry["compressed"] else "")
     entry["tape"] = args.tapelabel
 
     queue.append(
@@ -237,7 +244,9 @@ def handle_deletable(args, client_socket):
     result_none = []
     for folder in JsonDatabase().get_entries_by_state("archived"):
         dir = folder["original_directory"]
-        if any(dir.startswith(i) for i in args.ignore):
+        if isinstance(args.ignore, list) and any(
+            dir.startswith(i) for i in args.ignore
+        ):
             continue
         res = is_dir_with_timeout(Path(folder["original_directory"]), timeout=0.1)
         if res is None:

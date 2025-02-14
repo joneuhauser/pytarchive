@@ -16,10 +16,9 @@ from pytarchive.service.log import logger
 from pytarchive.service.utils import send_to_addr, send_to_logging_addr
 
 
-async def _get_size(folder: str, abort: asyncio.Event):
+async def _get_size(folder: str, abort: asyncio.Event, inodes=False):
     stdout, _ = await run_command(
-        "du",
-        "-s",
+        *(["du", "-s"] + (["--inodes"] if inodes else [])),
         folder,
         abort_event=abort,
         preserve_stderr=True,
@@ -31,7 +30,7 @@ async def _get_size(folder: str, abort: asyncio.Event):
     return int(stdout.split()[0])
 
 
-async def get_size(folder: str, progress, abort: asyncio.Event):
+async def prepare(folder: str, compress, progress, abort: asyncio.Event):
     entry = JsonDatabase()._get_folder(folder)
     progress(f"Querying size of folder {entry['original_directory']}")
 
@@ -41,9 +40,29 @@ async def get_size(folder: str, progress, abort: asyncio.Event):
         JsonDatabase().data.remove(entry)
         return
 
+    # Also get the number of inodes
+    inodes = await _get_size(entry["original_directory"], abort, True)
+    if inodes > 5e5 or compress:
+        # Tapes don't like a lot of small files, so we have to compress
+        compress = True
+
+    if abort.is_set():
+        JsonDatabase().data.remove(entry)
+        return
+
+    if compress:
+        base = Path(entry["original_directory"])
+        compressed_path = str(base.parent / base.with_suffix(".tar.gz"))
+        await run_command("tar", "czf", compressed_path, str(base), abort_event=abort)
+        size = await _get_size(compressed_path, abort)
+
+    if abort.is_set():
+        JsonDatabase().data.remove(entry)
+        return
+
     assert entry in JsonDatabase().data
 
-    JsonDatabase().set_prepared(entry, size)
+    JsonDatabase().set_prepared(entry, size, compress)
 
     return size
 
@@ -112,6 +131,7 @@ async def archive(
 
     # Now check that there is actually enough free space.
 
+    progress_callback(f"Checking free disk space on {tape_label}")
     stdout, _ = await run_command(
         "df",
         preserve_stdout=True,
@@ -129,72 +149,91 @@ async def archive(
             found = True
     assert found
 
-    path = "/ltfs/" + target_filename
-
-    # Great. Let's create a directory
-    os.mkdir(path)
-
-    # Find all files and pass that to ltfs_ordered_copy
-    excludes = sum(
-        (["-not", "-path", f"./{i}/*"] for i in ConfigReader().get_exclude_folders()),
-        [],
-    )
-
-    progress_callback("Assembling a list of files...")
-    files, _ = await run_command(
-        "find",
-        *excludes,
-        "-type",
-        "f",
-        preserve_stderr=True,
-        preserve_stdout=True,
-        log_stderr=logger.error,
-        log_stdout=lambda _: None,
-        abort_event=abort_event,
-        cwd=entry["original_directory"],
-    )
-
-    with open("/tmp/fileslist.txt", "w") as f:
-        f.write(files)
-
-    if abort_event.is_set():
-        os.rmdir(path)
-        return
-
-    progress_callback("Ordering the files for writing to tape...")
-
-    # Copy
-    stdout, _ = await run_command(
-        "python3",
-        str(Path(__file__).parent / "ordered_copy.py"),
-        "-t",
-        path,
-        "--keep-tree=.",
-        stdin=files,
-        log_stderr=logger.error,
-        log_stdout=lambda _: None,
-        stdout_callback=lambda str: progress_callback(f"Copying: {str}"),
-        abort_event=abort_event,
-        cwd=entry["original_directory"],
-    )
-
-    with open("/tmp/orderedcopy.txt", "w") as f:
-        f.write(stdout)
-
-    if abort_event.is_set():
-        # Afterwards, we don't allow to abort, we're practically done anyway.
-        os.rmdir(path)
-        return
-
-    progress_callback("Checking that the folders are equal...")
-
-    equal = await check_folders_equal(
-        entry["original_directory"], ConfigReader().get_exclude_folders(), path, []
-    )
-    if not equal:
-        raise ValueError(
-            "After-copy consistency check failed. Please check manually. File lists written to /tmp/source.txt and /tmp/target.txt"
+    if entry["compressed"]:
+        base = Path(entry["original_directory"])
+        source = str(base.parent / base.with_suffix(".tar.gz"))
+        path = (Path("/ltfs/") / target_filename).with_suffix(".tar.gz")
+        if path.exists():
+            raise Exception("Unable to create archive on tape, file already exists.")
+        await run_command(
+            "rsync",
+            "-auvp",
+            source,
+            path,
+            "--info=progress2",
+            log_stdout=lambda str: None,
+            stdout_callback=lambda str: progress_callback(f"Copying: {str}"),
         )
+        progress_callback("Deleting temp archive")
+        await run_command("rm", source)
+
+    else:
+        # Find all files and pass that to ltfs_ordered_copy
+        excludes = sum(
+            (
+                ["-not", "-path", f"./{i}/*"]
+                for i in ConfigReader().get_exclude_folders()
+            ),
+            [],
+        )
+        path = "/ltfs/" + target_filename
+
+        os.mkdir(path)
+        progress_callback("Assembling a list of files...")
+        files, _ = await run_command(
+            "find",
+            *excludes,
+            "-type",
+            "f",
+            preserve_stderr=True,
+            preserve_stdout=True,
+            log_stderr=logger.error,
+            log_stdout=lambda _: None,
+            abort_event=abort_event,
+            cwd=entry["original_directory"],
+        )
+
+        with open("/tmp/fileslist.txt", "w") as f:
+            f.write(files)
+
+        if abort_event.is_set():
+            os.rmdir(path)
+            return
+
+        progress_callback("Ordering the files for writing to tape...")
+
+        # Copy
+        stdout, _ = await run_command(
+            "python3",
+            str(Path(__file__).parent / "ordered_copy.py"),
+            "-t",
+            path,
+            "--keep-tree=.",
+            stdin=files,
+            log_stderr=logger.error,
+            log_stdout=lambda _: None,
+            stdout_callback=lambda str: progress_callback(f"Copying: {str}"),
+            abort_event=abort_event,
+            cwd=entry["original_directory"],
+        )
+
+        with open("/tmp/orderedcopy.txt", "w") as f:
+            f.write(stdout)
+
+        if abort_event.is_set():
+            # Afterwards, we don't allow to abort, we're practically done anyway.
+            os.rmdir(path)
+            return
+
+        progress_callback("Checking that the folders are equal...")
+
+        equal = await check_folders_equal(
+            entry["original_directory"], ConfigReader().get_exclude_folders(), path, []
+        )
+        if not equal:
+            raise ValueError(
+                "After-copy consistency check failed. Please check manually. File lists written to /tmp/source.txt and /tmp/target.txt"
+            )
 
     progress_callback("Querying size of folder on tape...")
 
@@ -209,10 +248,10 @@ async def archive(
     size = int(stdout.split()[0])
 
     JsonDatabase().set_archived(entry, size)
+    entry["tape"] = tape_label
 
     # Finally, delete the source folder
     # shutil.rmtree(entry["original_directory"])
-    await asyncio.sleep(200)
     for i in range(10):
         try:
             progress_callback(f"Unmounting the tape (attempt {i} of 10)...")

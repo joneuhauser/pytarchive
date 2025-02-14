@@ -68,10 +68,16 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
 
     # Asynchronous commands
     parser_prepare = subparsers.add_parser(
-        "prepare", help="Prepares a directory (computes the directories' size)"
+        "prepare",
+        help="Prepares a directory (computes the directories' size). "
+        "If the directory contains too many files, the directory is compressed. "
+        "This can also be forced",
     )
     parser_prepare.add_argument("folder")
     parser_prepare.add_argument("description")
+    parser_prepare.add_argument(
+        "--compress", action=argparse.BooleanOptionalAction, default=False
+    )
     parser_prepare.add_argument("--priority", type=int, default=0)
 
     parser_archive = subparsers.add_parser(
@@ -137,7 +143,7 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
             client_socket.write(s2.encode())
         return
 
-    logger.debug(args.command)
+    logger.info(args.command)
 
     if args.command == "queue":
         handle_queue(client_socket, queue)
