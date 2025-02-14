@@ -251,7 +251,7 @@ def handle_deletable(args, client_socket):
             result_none.append(f"{dir} ({folder['description']})")
         if res:
             result.append(
-                f"{dir} ({folder['description']}, archived on {folder['tape']})"
+                f"{dir} ({folder['description']}, archived on {folder['tape']}, {humanize.naturalsize(folder['size'] * 1024, binary=True)})"
             )
     if len(result) == 0 and len(result_none) == 0:
         client_socket.write(b"Nothing to delete")
