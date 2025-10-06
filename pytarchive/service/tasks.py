@@ -133,7 +133,7 @@ async def archive(
 
     progress_callback(f"Checking free disk space on {tape_label}")
     stdout, _ = await run_command(
-        "df",
+        "df", "/ltfs",
         preserve_stdout=True,
     )
     found = False

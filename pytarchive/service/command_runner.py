@@ -59,9 +59,9 @@ async def run_command(
     # Log both stdout and stderr, and await cancellation. Wait until one of those tasks is finished.
     done, pending = await asyncio.wait(
         [
-            log_output(process.stdout, logger.info, preserve_stdout, stdout_res),
-            log_output(process.stderr, logger.error, preserve_stderr, stderr_res),
-            monitor_abort(),
+		asyncio.create_task(log_output(process.stdout, logger.info, preserve_stdout, stdout_res)),
+        	asyncio.create_task(log_output(process.stderr, logger.error, preserve_stderr, stderr_res)),
+        	asyncio.create_task(monitor_abort()),        
         ],
         return_when=asyncio.FIRST_COMPLETED,
     )
