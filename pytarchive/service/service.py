@@ -20,6 +20,7 @@ from pytarchive.service.handlers import (
     handle_summary,
     handle_inventory,
 )
+from pytarchive.service.library import Library
 from pytarchive.service.log import logger
 from pytarchive.service.work_queue import WorkList
 
@@ -172,9 +173,17 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
 
 def handle_signal(sig, frame):
     """Handle termination signals to gracefully shutdown the service."""
-    logger.info("Shutting down service")
-    os.unlink(PID_FILE)
-    os.unlink(SOCKET_FILE)
+    logger.info("Shutting down service...")
+    try:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(Library().ensure_tape_unmounted(lambda x: None))
+    except Exception as e:
+        logger.warning(f"Error during cleanup: {e}")
+    for path in [PID_FILE, SOCKET_FILE]:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
     sys.exit(0)
 
 
