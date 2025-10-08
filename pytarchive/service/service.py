@@ -62,10 +62,13 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
     )
     parser_abort.add_argument("task", nargs="+")
 
-    parser_abort = subparsers.add_parser(
+    parser_requeue = subparsers.add_parser(
         "requeue", help="Restarts a failed task using its task id"
     )
-    parser_abort.add_argument("failedtask", nargs="+", action="append")
+    parser_requeue.add_argument("failedtask", nargs="*", action="append")
+    parser_requeue.add_argument(
+        "--all", action=argparse.BooleanOptionalAction, default=False
+    )
 
     # Asynchronous commands
     parser_prepare = subparsers.add_parser(

@@ -64,7 +64,24 @@ def handle_requeue(args, client_socket, queue: WorkList):
                     return f"Task {id} was already queued"
         return f"Task {id} not found"
 
-    client_socket.write("\n".join(process_task(id) for id in args.failedtask).encode())
+    # failedtask not provided
+    if (
+        args.failedtask is None
+        or len(args.failedtask) == 0
+        or (
+            len(args.failedtask) == 1
+            and isinstance(args.failedtask[0], list)
+            and len(args.failedtask[0]) == 0
+        )
+    ):
+        if args.all:
+            failedtask = [i.format_hash() for i in queue if i.is_error()]
+        else:
+            client_socket.write(b"No tasks specified")
+            return
+    else:
+        failedtask = args.failedtask
+    client_socket.write(("\n".join(process_task(id) for id in failedtask)).encode())
 
 
 def handle_prepare(args, client_socket, queue: WorkList):
