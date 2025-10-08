@@ -171,20 +171,26 @@ def handle_command(command: bytes, client_socket, queue: WorkList):
         client_socket.write(parser.format_help().encode())
 
 
-def handle_signal(sig, frame):
-    """Handle termination signals to gracefully shutdown the service."""
-    logger.info("Shutting down service...")
+async def cleanup():
+    logger.info("Running async cleanup...")
     try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(Library().ensure_tape_unmounted(lambda x: None))
+        await Library().ensure_tape_unmounted(lambda x: None)
     except Exception as e:
-        logger.warning(f"Error during cleanup: {e}")
+        logger.warning(f"Tape unmount failed: {e}")
     for path in [PID_FILE, SOCKET_FILE]:
         try:
             os.unlink(path)
         except FileNotFoundError:
             pass
-    sys.exit(0)
+    logger.info("Cleanup complete.")
+
+
+shutdown_event = asyncio.Event()
+
+
+def handle_signal(sig, frame):
+    logger.info(f"Received {signal.Signals(sig).name}, initiating shutdown...")
+    shutdown_event.set()
 
 
 class pytarchiveServer(asyncio.Protocol):
@@ -228,8 +234,25 @@ async def main():
     logger.info(f"Service started, waiting for commands on {SOCKET_FILE}")
 
     try:
-        async with server:
-            await server.serve_forever()
+        # run serve_forever() but allow clean shutdown
+        serve_task = asyncio.create_task(server.serve_forever())
+        shutdown_task = asyncio.create_task(shutdown_event.wait())
+
+        done, pending = await asyncio.wait(
+            [serve_task, shutdown_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        # stop accepting new clients
+        server.close()
+        await server.wait_closed()
+
+        # cancel the pending one (usually serve_forever)
+        for task in pending:
+            task.cancel()
+
+        await cleanup()
+        logger.info("Service stopped cleanly.")
     except Exception as e:
         logger.error(f"Service encountered an error: {e}")
     finally:
