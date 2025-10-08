@@ -154,6 +154,7 @@ def handle_archive(args, client_socket, queue: WorkList):
 
     entry["path_on_tape"] = target_filename + (".tar.gz" if entry["compressed"] else "")
     entry["tape"] = args.tapelabel
+    JsonDatabase()._write_json()
 
     queue.append(
         WorkItem(
