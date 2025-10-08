@@ -5,7 +5,9 @@ from itertools import groupby
 import os
 from pathlib import Path
 import socket
+import traceback
 from typing import List, Optional
+import unicodedata
 
 import humanize
 from pytarchive.service.config import ConfigReader
@@ -103,8 +105,10 @@ async def check_folders_equal(
         cwd=path2,
     )
 
-    filesizes = sorted(filesizes.splitlines())
-    filesizes_on_tape = sorted(filesizes_on_tape.splitlines())
+    filesizes = sorted(unicodedata.normalize("NFC", filesizes).splitlines())
+    filesizes_on_tape = sorted(
+        unicodedata.normalize("NFC", filesizes_on_tape).splitlines()
+    )
 
     if filesizes == filesizes_on_tape:
         return True
@@ -395,7 +399,13 @@ async def inventory(folder, progress_callback, abort_event: asyncio.Event):
     result = []
     for subfolder in [f.path for f in os.scandir(folder) if f.is_dir()]:
         progress_callback(f"Getting size of {subfolder}..")
-        size = await _get_size(subfolder, abort_event)
+        try:
+            size = await _get_size(subfolder, abort_event)
+        except Exception as e:
+            logger.log(
+                f"Unable to get size of {subfolder}, skipping: {"".join(traceback.format_exception(e))}"
+            )
+            size = -1
 
         if abort_event.is_set():
             return
