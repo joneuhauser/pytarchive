@@ -122,10 +122,10 @@ class JsonDatabase:
     def format(self, all_tapes: List[str]) -> str:
         res = []
         state_order = {
+            "archived": 0,
             "preparing": 1,
             "prepared": 2,
             "archiving_queued": 3,
-            "archived": 4,
         }
         sorted_data = sorted(self.data, key=lambda x: state_order.get(x["state"], 99))
 
