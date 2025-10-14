@@ -54,7 +54,10 @@ async def prepare(folder: str, compress, progress, abort: asyncio.Event):
 
     if compress:
         base = Path(entry["original_directory"])
-        compressed_path = str(base.parent / base.with_suffix(".tar.gz"))
+        root_path = Path(ConfigReader().get("General", "scratch_path", base.parent))
+        compressed_path = str(root_path / base.with_suffix(".tar.gz"))
+        entry["compressed_path"] = compressed_path
+        progress("Compressing folder to " + compressed_path)
         await run_command("tar", "czf", compressed_path, str(base), abort_event=abort)
         size = await _get_size(compressed_path, abort)
 
@@ -137,7 +140,8 @@ async def archive(
 
     progress_callback(f"Checking free disk space on {tape_label}")
     stdout, _ = await run_command(
-        "df", "/ltfs",
+        "df",
+        "/ltfs",
         preserve_stdout=True,
     )
     found = False
@@ -154,22 +158,24 @@ async def archive(
     assert found
 
     if entry["compressed"]:
-        base = Path(entry["original_directory"])
-        source = str(base.parent / base.with_suffix(".tar.gz"))
+        source = Path(entry["compressed_path"])
+        assert source.exists(), f"Compressed source is missing: {source}"
         pth = (Path("/ltfs/") / target_filename).with_suffix(".tar.gz")
+        path = str(pth)
         if pth.exists():
             raise Exception("Unable to create archive on tape, file already exists.")
         await run_command(
             "rsync",
             "-auvp",
             source,
-            str(pth),
+            path,
             "--info=progress2",
             log_stdout=lambda str: None,
             stdout_callback=lambda str: progress_callback(f"Copying: {str}"),
         )
         progress_callback("Deleting temp archive")
         await run_command("rm", source)
+        entry.pop("compressed_path")
 
     else:
         # Find all files and pass that to ltfs_ordered_copy
